@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#050609" />
+    <title>Neon Rift Runner</title>
+  </head>
+  <body>
+    <main id="game">
+      <canvas id="scene" aria-label="Neon Rift Runner 3D game scene"></canvas>
+
+      <section class="hud" aria-live="polite">
+        <div class="brand">
+          <span class="brand-mark"></span>
+          <span>Neon Rift Runner</span>
+        </div>
+        <div class="meter-row">
+          <div class="meter">
+            <span>Hull</span>
+            <div class="track"><i id="hullBar"></i></div>
+          </div>
+          <div class="meter">
+            <span>Boost</span>
+            <div class="track"><i id="boostBar"></i></div>
+          </div>
+          <div class="meter">
+            <span>Rift</span>
+            <div class="track rift"><i id="riftBar"></i></div>
+          </div>
+        </div>
+        <div class="stats">
+          <div><span>Score</span><strong id="score">0</strong></div>
+          <div><span>Flow</span><strong id="combo">x1.0</strong></div>
+          <div><span>Streak</span><strong id="streak">0</strong></div>
+          <div><span>Gates</span><strong id="gates">0</strong></div>
+        </div>
+      </section>
+
+      <section id="splash" class="overlay is-visible">
+        <div class="title-lockup">
+          <p class="eyebrow">Pulse flight arcade</p>
+          <h1>Neon Rift Runner</h1>
+          <p class="tagline">Thread the gates. Steal charge. Outrun the collapsing skyline.</p>
+        </div>
+        <div class="actions">
+          <button id="startButton" class="primary">
+            <i data-lucide="play"></i>
+            <span>Launch</span>
+          </button>
+          <button id="zenButton" class="secondary">
+            <i data-lucide="sparkles"></i>
+            <span>Zen Run</span>
+          </button>
+        </div>
+      </section>
+
+      <section id="pausePanel" class="overlay compact">
+        <div class="title-lockup">
+          <p class="eyebrow">Run suspended</p>
+          <h2>Paused</h2>
+        </div>
+        <div class="actions">
+          <button id="resumeButton" class="primary">
+            <i data-lucide="play"></i>
+            <span>Resume</span>
+          </button>
+          <button id="restartFromPause" class="secondary">
+            <i data-lucide="rotate-ccw"></i>
+            <span>Restart</span>
+          </button>
+        </div>
+      </section>
+
+      <section id="gameOverPanel" class="overlay compact">
+        <div class="title-lockup">
+          <p class="eyebrow">Signal lost</p>
+          <h2>Run Complete</h2>
+          <p class="tagline">Score <strong id="finalScore">0</strong></p>
+        </div>
+        <div class="actions">
+          <button id="restartButton" class="primary">
+            <i data-lucide="rotate-ccw"></i>
+            <span>Run Again</span>
+          </button>
+        </div>
+      </section>
+
+      <nav class="quick-actions" aria-label="Game controls">
+        <button id="pauseButton" title="Pause">
+          <i data-lucide="pause"></i>
+        </button>
+        <button id="soundButton" title="Sound">
+          <i data-lucide="volume-2"></i>
+        </button>
+      </nav>
+
+      <div id="callout" class="callout" aria-hidden="true"></div>
+
+      <nav class="touch-controls" aria-label="Touch flight controls">
+        <button data-hold="left" title="Left">
+          <i data-lucide="chevron-left"></i>
+        </button>
+        <button data-hold="right" title="Right">
+          <i data-lucide="chevron-right"></i>
+        </button>
+        <button data-hold="up" title="Rise">
+          <i data-lucide="chevron-up"></i>
+        </button>
+        <button data-hold="down" title="Drop">
+          <i data-lucide="chevron-down"></i>
+        </button>
+        <button data-hold="boost" class="boost" title="Boost">
+          <i data-lucide="zap"></i>
+        </button>
+      </nav>
+    </main>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
