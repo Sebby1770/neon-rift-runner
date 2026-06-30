@@ -31,6 +31,7 @@
         </div>
         <div class="stats">
           <div><span>Score</span><strong id="score">0</strong></div>
+          <div><span>Best</span><strong id="bestScore">0</strong></div>
           <div><span>Flow</span><strong id="combo">x1.0</strong></div>
           <div><span>Streak</span><strong id="streak">0</strong></div>
           <div><span>Gates</span><strong id="gates">0</strong></div>
@@ -76,7 +77,7 @@
         <div class="title-lockup">
           <p class="eyebrow">Signal lost</p>
           <h2>Run Complete</h2>
-          <p class="tagline">Score <strong id="finalScore">0</strong></p>
+          <p class="tagline">Score <strong id="finalScore">0</strong> · Best <strong id="finalBest">0</strong></p>
         </div>
         <div class="actions">
           <button id="restartButton" class="primary">
@@ -86,12 +87,30 @@
         </div>
       </section>
 
+      <section class="systems-panel" aria-label="Runtime telemetry">
+        <div>
+          <span>FPS</span>
+          <strong id="fpsValue">60</strong>
+        </div>
+        <div>
+          <span>Quality</span>
+          <strong id="qualityMode">Ultra</strong>
+        </div>
+        <div>
+          <span>Errors</span>
+          <strong id="errorLogCount">0</strong>
+        </div>
+      </section>
+
       <nav class="quick-actions" aria-label="Game controls">
         <button id="pauseButton" title="Pause">
           <i data-lucide="pause"></i>
         </button>
         <button id="soundButton" title="Sound">
           <i data-lucide="volume-2"></i>
+        </button>
+        <button id="qualityButton" title="Performance mode">
+          <i data-lucide="cpu"></i>
         </button>
       </nav>
 

@@ -13,15 +13,21 @@ const splash = document.querySelector('#splash');
 const pausePanel = document.querySelector('#pausePanel');
 const gameOverPanel = document.querySelector('#gameOverPanel');
 const scoreEl = document.querySelector('#score');
+const bestScoreEl = document.querySelector('#bestScore');
 const comboEl = document.querySelector('#combo');
 const gatesEl = document.querySelector('#gates');
 const streakEl = document.querySelector('#streak');
 const finalScoreEl = document.querySelector('#finalScore');
+const finalBestEl = document.querySelector('#finalBest');
 const hullBar = document.querySelector('#hullBar');
 const boostBar = document.querySelector('#boostBar');
 const riftBar = document.querySelector('#riftBar');
+const fpsValue = document.querySelector('#fpsValue');
+const qualityMode = document.querySelector('#qualityMode');
+const errorLogCount = document.querySelector('#errorLogCount');
 const pauseButton = document.querySelector('#pauseButton');
 const soundButton = document.querySelector('#soundButton');
+const qualityButton = document.querySelector('#qualityButton');
 const startButton = document.querySelector('#startButton');
 const zenButton = document.querySelector('#zenButton');
 const resumeButton = document.querySelector('#resumeButton');
@@ -61,6 +67,14 @@ const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const audio = createAudio();
 
+const STORAGE_KEYS = {
+  bestScore: 'neon-rift-runner:best-score',
+  settings: 'neon-rift-runner:settings',
+  errors: 'neon-rift-runner:errors',
+};
+
+const savedSettings = readJson(STORAGE_KEYS.settings, {});
+
 const keys = {
   left: false,
   right: false,
@@ -78,7 +92,11 @@ const bounds = {
 const state = {
   mode: 'title',
   zen: false,
-  muted: false,
+  muted: Boolean(savedSettings.muted),
+  performanceMode: Boolean(savedSettings.performanceMode),
+  bestScore: readNumber(STORAGE_KEYS.bestScore, 0),
+  fps: 60,
+  errorCount: readJson(STORAGE_KEYS.errors, []).length,
   score: 0,
   scoreCarry: 0,
   gates: 0,
@@ -99,6 +117,8 @@ const state = {
   runTime: 0,
   calloutTimer: 0,
 };
+
+applyQualitySettings();
 
 const palette = {
   cyan: 0x29f6c9,
@@ -749,7 +769,9 @@ function resumeGame() {
 function endGame() {
   if (state.mode === 'gameover') return;
   state.mode = 'gameover';
+  persistBestScore();
   finalScoreEl.textContent = formatScore(state.score);
+  finalBestEl.textContent = formatScore(state.bestScore);
   setOverlay(gameOverPanel, true);
   audio.play('crash');
 }
@@ -807,6 +829,10 @@ function update(delta) {
       state.scoreCarry -= gained;
     }
     updateCollisions();
+    if (!state.performanceMode && state.runTime > 8 && state.fps < 38) {
+      setPerformanceMode(true, true);
+      showCallout('Performance mode enabled');
+    }
   } else {
     ship.rotation.z = THREE.MathUtils.lerp(ship.rotation.z, Math.sin(elapsed) * 0.04, 1 - Math.exp(-delta * 2));
     ship.position.y = THREE.MathUtils.lerp(ship.position.y, 2.6 + Math.sin(elapsed * 1.4) * 0.12, 1 - Math.exp(-delta * 2));
@@ -1118,22 +1144,31 @@ function updateCamera(delta, boostActive, elapsed, overdriveActive) {
   camera.updateProjectionMatrix();
   bloomPass.strength = THREE.MathUtils.lerp(
     bloomPass.strength,
-    overdriveActive ? 1.55 : boostActive ? 1.25 : 0.88 + Math.sin(elapsed) * 0.06,
+    (overdriveActive ? 1.55 : boostActive ? 1.25 : 0.88 + Math.sin(elapsed) * 0.06) *
+      (state.performanceMode ? 0.62 : 1),
     1 - Math.exp(-delta * 2),
   );
 }
 
 function updateHud() {
   scoreEl.textContent = formatScore(state.score);
+  bestScoreEl.textContent = formatScore(Math.max(state.bestScore, state.score));
   comboEl.textContent = `x${state.combo.toFixed(1)}`;
   streakEl.textContent = String(state.streak);
   gatesEl.textContent = String(state.gates);
+  fpsValue.textContent = String(Math.max(0, Math.round(state.fps)));
+  qualityMode.textContent = state.performanceMode ? 'Perf' : 'Ultra';
+  errorLogCount.textContent = String(state.errorCount);
   hullBar.style.transform = `scaleX(${THREE.MathUtils.clamp(state.hull, 0, 100) / 100})`;
   boostBar.style.transform = `scaleX(${state.boost / 100})`;
   riftBar.style.transform = `scaleX(${state.rift / 100})`;
   hullBar.style.filter = state.hull <= 30 ? 'saturate(1.4) brightness(1.15)' : '';
   boostBar.style.filter = keys.boost ? 'brightness(1.35)' : '';
   riftBar.style.filter = state.overdrive > 0 ? 'brightness(1.8) saturate(1.5)' : '';
+  qualityButton.classList.toggle('is-active', state.performanceMode);
+  soundButton.classList.toggle('is-active', !state.muted);
+  soundButton.title = state.muted ? 'Sound muted' : 'Sound on';
+  syncSoundIcon();
 }
 
 function getXLimit() {
@@ -1153,6 +1188,9 @@ function formatScore(score) {
 
 function animate() {
   const delta = Math.min(clock.getDelta(), 0.05);
+  if (delta > 0) {
+    state.fps = THREE.MathUtils.lerp(state.fps, 1 / delta, 0.08);
+  }
   update(delta);
   composer.render();
   requestAnimationFrame(animate);
@@ -1249,12 +1287,90 @@ function createAudio() {
   };
 }
 
+function readJson(key, fallback) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJson(key, value) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage can fail in private browsing. The game still runs without persistence.
+  }
+}
+
+function readNumber(key, fallback) {
+  try {
+    const value = Number(window.localStorage.getItem(key));
+    return Number.isFinite(value) ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function persistSettings() {
+  writeJson(STORAGE_KEYS.settings, {
+    muted: state.muted,
+    performanceMode: state.performanceMode,
+  });
+}
+
+function persistBestScore() {
+  if (state.score <= state.bestScore) return;
+  state.bestScore = Math.round(state.score);
+  try {
+    window.localStorage.setItem(STORAGE_KEYS.bestScore, String(state.bestScore));
+  } catch {
+    // Best score persistence is a bonus, not a dependency.
+  }
+}
+
+function setPerformanceMode(enabled, persist = false) {
+  state.performanceMode = enabled;
+  applyQualitySettings();
+  if (persist) persistSettings();
+  updateHud();
+}
+
+function syncSoundIcon() {
+  const iconName = state.muted ? 'volume-x' : 'volume-2';
+  if (soundButton.dataset.icon === iconName) return;
+  soundButton.dataset.icon = iconName;
+  soundButton.innerHTML = `<i data-lucide="${iconName}"></i>`;
+  createIcons({ icons });
+}
+
+function applyQualitySettings() {
+  const pixelRatio = state.performanceMode ? Math.min(window.devicePixelRatio, 1.25) : Math.min(window.devicePixelRatio, 2);
+  renderer.setPixelRatio(pixelRatio);
+  composer.setSize(window.innerWidth, window.innerHeight);
+  bloomPass.setSize(window.innerWidth, window.innerHeight);
+}
+
+function recordRuntimeError(error) {
+  const previous = readJson(STORAGE_KEYS.errors, []);
+  const entry = {
+    at: new Date().toISOString(),
+    message: error?.message || String(error),
+    stack: error?.stack || '',
+  };
+  const next = [entry, ...previous].slice(0, 20);
+  writeJson(STORAGE_KEYS.errors, next);
+  state.errorCount = next.length;
+  updateHud();
+}
+
 function resize() {
   const width = window.innerWidth;
   const height = window.innerHeight;
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(state.performanceMode ? Math.min(window.devicePixelRatio, 1.25) : Math.min(window.devicePixelRatio, 2));
   renderer.setSize(width, height);
   composer.setSize(width, height);
   bloomPass.setSize(width, height);
@@ -1264,6 +1380,8 @@ window.addEventListener('keydown', (event) => handleKey(event, true));
 window.addEventListener('keyup', (event) => handleKey(event, false));
 window.addEventListener('resize', resize);
 window.addEventListener('pointermove', handlePointerMove);
+window.addEventListener('error', (event) => recordRuntimeError(event.error || event.message));
+window.addEventListener('unhandledrejection', (event) => recordRuntimeError(event.reason));
 document.querySelectorAll('[data-hold]').forEach(bindHoldButton);
 
 startButton.addEventListener('click', () => startGame(false));
@@ -1277,8 +1395,14 @@ pauseButton.addEventListener('click', () => {
 });
 soundButton.addEventListener('click', () => {
   state.muted = !state.muted;
-  soundButton.innerHTML = `<i data-lucide="${state.muted ? 'volume-x' : 'volume-2'}"></i>`;
-  createIcons({ icons });
+  persistSettings();
+  audio.resume();
+  audio.play('tap');
+  updateHud();
+});
+qualityButton.addEventListener('click', () => {
+  setPerformanceMode(!state.performanceMode, true);
+  showCallout(state.performanceMode ? 'Performance mode' : 'Ultra mode');
   audio.resume();
   audio.play('tap');
 });
