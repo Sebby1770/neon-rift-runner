@@ -1,0 +1,10 @@
+{
+  "name": "Neon Rift Runner",
+  "short_name": "Rift Runner",
+  "description": "A full-screen Three.js arcade tunnel runner with offline cache and telemetry.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "background_color": "#050609",
+  "theme_color": "#050609",
+  "icons": []
+}

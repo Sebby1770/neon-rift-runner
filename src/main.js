@@ -25,6 +25,7 @@ const riftBar = document.querySelector('#riftBar');
 const fpsValue = document.querySelector('#fpsValue');
 const qualityMode = document.querySelector('#qualityMode');
 const errorLogCount = document.querySelector('#errorLogCount');
+const cacheStatus = document.querySelector('#cacheStatus');
 const pauseButton = document.querySelector('#pauseButton');
 const soundButton = document.querySelector('#soundButton');
 const qualityButton = document.querySelector('#qualityButton');
@@ -73,6 +74,8 @@ const STORAGE_KEYS = {
   errors: 'neon-rift-runner:errors',
 };
 
+const APP_VERSION = '2.1.0';
+
 const savedSettings = readJson(STORAGE_KEYS.settings, {});
 
 const keys = {
@@ -97,6 +100,7 @@ const state = {
   bestScore: readNumber(STORAGE_KEYS.bestScore, 0),
   fps: 60,
   errorCount: readJson(STORAGE_KEYS.errors, []).length,
+  cacheStatus: navigator.onLine ? 'Online' : 'Offline',
   score: 0,
   scoreCarry: 0,
   gates: 0,
@@ -1159,6 +1163,7 @@ function updateHud() {
   fpsValue.textContent = String(Math.max(0, Math.round(state.fps)));
   qualityMode.textContent = state.performanceMode ? 'Perf' : 'Ultra';
   errorLogCount.textContent = String(state.errorCount);
+  cacheStatus.textContent = state.cacheStatus;
   hullBar.style.transform = `scaleX(${THREE.MathUtils.clamp(state.hull, 0, 100) / 100})`;
   boostBar.style.transform = `scaleX(${state.boost / 100})`;
   riftBar.style.transform = `scaleX(${state.rift / 100})`;
@@ -1365,6 +1370,58 @@ function recordRuntimeError(error) {
   updateHud();
 }
 
+function updateCacheStatus(status) {
+  state.cacheStatus = status;
+  updateHud();
+}
+
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) {
+    updateCacheStatus('No SW');
+    return;
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.register('/sw.js');
+    updateCacheStatus(registration.active ? 'Cached' : 'Ready');
+    registration.addEventListener('updatefound', () => updateCacheStatus('Update'));
+  } catch (error) {
+    recordRuntimeError(error);
+    updateCacheStatus('No cache');
+  }
+}
+
+function createRpcInterface() {
+  window.neonRiftRunner = {
+    version: APP_VERSION,
+    rpc(method, params = {}) {
+      if (method === 'telemetry.get') {
+        return {
+          version: APP_VERSION,
+          mode: state.mode,
+          score: Math.round(state.score),
+          bestScore: state.bestScore,
+          fps: Math.round(state.fps),
+          quality: state.performanceMode ? 'performance' : 'ultra',
+          errors: readJson(STORAGE_KEYS.errors, []),
+          cache: state.cacheStatus,
+        };
+      }
+      if (method === 'quality.set') {
+        setPerformanceMode(Boolean(params.performanceMode), true);
+        return { ok: true, performanceMode: state.performanceMode };
+      }
+      if (method === 'best.reset') {
+        state.bestScore = 0;
+        window.localStorage.removeItem(STORAGE_KEYS.bestScore);
+        updateHud();
+        return { ok: true };
+      }
+      throw new Error(`Unknown RPC method: ${method}`);
+    },
+  };
+}
+
 function resize() {
   const width = window.innerWidth;
   const height = window.innerHeight;
@@ -1382,6 +1439,8 @@ window.addEventListener('resize', resize);
 window.addEventListener('pointermove', handlePointerMove);
 window.addEventListener('error', (event) => recordRuntimeError(event.error || event.message));
 window.addEventListener('unhandledrejection', (event) => recordRuntimeError(event.reason));
+window.addEventListener('online', () => updateCacheStatus('Online'));
+window.addEventListener('offline', () => updateCacheStatus('Offline'));
 document.querySelectorAll('[data-hold]').forEach(bindHoldButton);
 
 startButton.addEventListener('click', () => startGame(false));
@@ -1408,5 +1467,7 @@ qualityButton.addEventListener('click', () => {
 });
 
 setOverlay(splash, true);
+createRpcInterface();
+registerServiceWorker();
 updateHud();
 animate();

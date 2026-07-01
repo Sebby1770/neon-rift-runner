@@ -1,0 +1,10 @@
+services:
+  game:
+    build: .
+    ports:
+      - "8080:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health.json"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
