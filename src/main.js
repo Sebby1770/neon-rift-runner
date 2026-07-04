@@ -73,9 +73,10 @@ const STORAGE_KEYS = {
   settings: 'neon-rift-runner:settings',
   errors: 'neon-rift-runner:errors',
   runs: 'neon-rift-runner:runs',
+  pendingRuns: 'neon-rift-runner:pending-runs',
 };
 
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.4.0';
 
 const SUPABASE_CONFIG = {
   url: String(import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, ''),
@@ -111,6 +112,7 @@ const state = {
   errorCount: readJson(STORAGE_KEYS.errors, []).length,
   cacheStatus: navigator.onLine ? 'Online' : 'Offline',
   cloudStatus: SUPABASE_CONFIG.enabled ? 'Ready' : 'Local',
+  pendingSyncs: readJson(STORAGE_KEYS.pendingRuns, []).length,
   score: 0,
   scoreCarry: 0,
   gates: 0,
@@ -1174,7 +1176,7 @@ function updateHud() {
   fpsValue.textContent = String(Math.max(0, Math.round(state.fps)));
   qualityMode.textContent = state.performanceMode ? 'Perf' : 'Ultra';
   errorLogCount.textContent = String(state.errorCount);
-  cacheStatus.textContent = state.cacheStatus;
+  cacheStatus.textContent = state.pendingSyncs > 0 ? `${state.cacheStatus}/${state.pendingSyncs}Q` : state.cacheStatus;
   hullBar.style.transform = `scaleX(${THREE.MathUtils.clamp(state.hull, 0, 100) / 100})`;
   boostBar.style.transform = `scaleX(${state.boost / 100})`;
   riftBar.style.transform = `scaleX(${state.rift / 100})`;
@@ -1388,12 +1390,7 @@ function leaderboardEndpoint(query = '') {
   return `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.table}${query}`;
 }
 
-async function syncRunToSupabase(entry) {
-  if (!SUPABASE_CONFIG.enabled || !navigator.onLine) {
-    state.cloudStatus = SUPABASE_CONFIG.enabled ? 'Offline' : 'Local';
-    return { ok: false, reason: state.cloudStatus };
-  }
-
+function buildSupabaseRunPayload(entry) {
   const payload = {
     run_id: entry.runId,
     app_version: entry.version,
@@ -1405,28 +1402,82 @@ async function syncRunToSupabase(entry) {
     quality: entry.quality,
     user_agent: navigator.userAgent.slice(0, 180),
   };
+  return payload;
+}
+
+async function postRunToSupabase(entry) {
+  const response = await fetch(leaderboardEndpoint(), {
+    method: 'POST',
+    headers: supabaseHeaders({
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    }),
+    body: JSON.stringify(buildSupabaseRunPayload(entry)),
+  });
+  if (!response.ok) {
+    throw new Error(`Supabase leaderboard sync failed with HTTP ${response.status}`);
+  }
+}
+
+function queueSupabaseRun(entry, reason = 'offline') {
+  if (!SUPABASE_CONFIG.enabled) return { ok: false, reason: 'Supabase leaderboard is not configured.' };
+  const previous = readJson(STORAGE_KEYS.pendingRuns, []);
+  const queued = previous.filter((item) => item.runId !== entry.runId);
+  const next = [{ ...entry, queuedAt: new Date().toISOString(), queueReason: reason }, ...queued].slice(0, 25);
+  writeJson(STORAGE_KEYS.pendingRuns, next);
+  state.pendingSyncs = next.length;
+  state.cloudStatus = reason === 'offline' ? 'Queued' : 'Retry queued';
+  updateHud();
+  return { ok: true, queued: next.length, reason };
+}
+
+async function syncRunToSupabase(entry) {
+  if (!SUPABASE_CONFIG.enabled) {
+    state.cloudStatus = 'Local';
+    return { ok: false, reason: state.cloudStatus };
+  }
+  if (!navigator.onLine) {
+    return queueSupabaseRun(entry, 'offline');
+  }
 
   try {
-    const response = await fetch(leaderboardEndpoint(), {
-      method: 'POST',
-      headers: supabaseHeaders({
-        'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
-      }),
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      throw new Error(`Supabase leaderboard sync failed with HTTP ${response.status}`);
-    }
+    await postRunToSupabase(entry);
     state.cloudStatus = 'Synced';
     return { ok: true };
   } catch (error) {
-    state.cloudStatus = 'Sync error';
+    queueSupabaseRun(entry, 'sync-error');
     recordRuntimeError(error);
-    return { ok: false, reason: error.message };
+    return { ok: false, queued: true, reason: error.message };
   } finally {
     updateHud();
   }
+}
+
+async function flushPendingSupabaseRuns() {
+  if (!SUPABASE_CONFIG.enabled) {
+    return { ok: false, reason: 'Supabase leaderboard is not configured.', remaining: 0 };
+  }
+  if (!navigator.onLine) {
+    state.cloudStatus = 'Offline';
+    updateHud();
+    return { ok: false, reason: 'Browser is offline.', remaining: state.pendingSyncs };
+  }
+
+  const pending = readJson(STORAGE_KEYS.pendingRuns, []);
+  const remaining = [];
+  for (const entry of pending.slice().reverse()) {
+    try {
+      await postRunToSupabase(entry);
+    } catch (error) {
+      remaining.unshift(entry);
+      recordRuntimeError(error);
+    }
+  }
+  writeJson(STORAGE_KEYS.pendingRuns, remaining);
+  state.pendingSyncs = remaining.length;
+  state.cloudStatus = remaining.length > 0 ? 'Retry queued' : 'Synced';
+  updateHud();
+  return { ok: remaining.length === 0, flushed: pending.length - remaining.length, remaining: remaining.length };
 }
 
 async function fetchSupabaseLeaderboard(limit = 10) {
@@ -1516,6 +1567,7 @@ function createRpcInterface() {
           runs: state.runHistory.slice(0, 5),
           cache: state.cacheStatus,
           cloud: state.cloudStatus,
+          pendingSyncs: state.pendingSyncs,
           leaderboard: {
             enabled: SUPABASE_CONFIG.enabled,
             table: SUPABASE_CONFIG.table,
@@ -1529,6 +1581,12 @@ function createRpcInterface() {
         const [latest] = state.runHistory;
         if (!latest) return Promise.resolve({ ok: false, reason: 'No completed run is available.' });
         return syncRunToSupabase(latest);
+      }
+      if (method === 'cloud.flush') {
+        return flushPendingSupabaseRuns();
+      }
+      if (method === 'cloud.queue') {
+        return { ok: true, runs: readJson(STORAGE_KEYS.pendingRuns, []) };
       }
       if (method === 'runs.list') {
         return { ok: true, runs: state.runHistory };
@@ -1585,7 +1643,10 @@ window.addEventListener('resize', resize);
 window.addEventListener('pointermove', handlePointerMove);
 window.addEventListener('error', (event) => recordRuntimeError(event.error || event.message));
 window.addEventListener('unhandledrejection', (event) => recordRuntimeError(event.reason));
-window.addEventListener('online', () => updateCacheStatus('Online'));
+window.addEventListener('online', () => {
+  updateCacheStatus('Online');
+  flushPendingSupabaseRuns();
+});
 window.addEventListener('offline', () => updateCacheStatus('Offline'));
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && state.mode === 'playing') {

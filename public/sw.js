@@ -1,4 +1,4 @@
-const CACHE_NAME = 'neon-rift-runner-v2.3.0';
+const CACHE_NAME = 'neon-rift-runner-v2.4.0';
 const CORE_ASSETS = ['/', '/index.html', '/manifest.webmanifest', '/health.json'];
 
 self.addEventListener('install', (event) => {

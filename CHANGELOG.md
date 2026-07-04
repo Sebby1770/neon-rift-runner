@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.4.0 - 2026-07-04
+
+- Added an offline-safe Supabase leaderboard queue for completed runs.
+- Added automatic retry when the browser returns online plus `cloud.flush` and `cloud.queue` RPC methods.
+- Added pending-sync telemetry in the HUD cache indicator and telemetry payload.
+- Bumped package, health, and service-worker versions to `2.4.0`.
+
 ## 2.3.0 - 2026-07-04
 
 - Added Vercel static deployment configuration with immutable asset caching and security headers.

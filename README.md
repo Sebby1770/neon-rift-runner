@@ -4,7 +4,7 @@ A full-screen 3D arcade tunnel runner built with Three.js, Vite, and a little We
 
 Fly through neon gates, collect boost and rift shards, dodge moving slicers, and charge Overdrive for a short invulnerable speed burst.
 
-This refresh adds production-style polish from the reference stack: persistent best scores, saved settings, run-history analytics, optional Supabase leaderboard sync, FPS telemetry, runtime error logging, automatic performance mode, offline cache, a browser RPC telemetry surface, health checks, Vercel config, Docker/nginx deployment, Kubernetes manifests, and GitHub Actions CI.
+This refresh adds production-style polish from the reference stack: persistent best scores, saved settings, run-history analytics, optional Supabase leaderboard sync with offline retry queueing, FPS telemetry, runtime error logging, automatic performance mode, offline cache, a browser RPC telemetry surface, health checks, Vercel config, Docker/nginx deployment, Kubernetes manifests, and GitHub Actions CI.
 
 ## Play
 
@@ -41,7 +41,7 @@ VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 VITE_SUPABASE_LEADERBOARD_TABLE=neon_rift_runs
 ```
 
-When configured, completed runs are still saved locally and are also posted to Supabase. Leaderboard reads are available through `window.neonRiftRunner.rpc('leaderboard.get', { limit: 10 })`.
+When configured, completed runs are still saved locally and are also posted to Supabase. If the browser is offline or the first write fails, the run is queued locally and retried when the browser comes back online. Leaderboard reads are available through `window.neonRiftRunner.rpc('leaderboard.get', { limit: 10 })`.
 
 ## Check
 
@@ -75,6 +75,8 @@ kubectl apply -f k8s/deployment.yaml
 - `window.neonRiftRunner.rpc('runs.list')` and `window.neonRiftRunner.rpc('settings.export')` expose local analytics/settings snapshots.
 - `window.neonRiftRunner.rpc('leaderboard.get')` reads the optional Supabase leaderboard.
 - `window.neonRiftRunner.rpc('cloud.syncLast')` retries the latest run against Supabase.
+- `window.neonRiftRunner.rpc('cloud.flush')` retries queued leaderboard submissions.
+- `window.neonRiftRunner.rpc('cloud.queue')` returns queued submissions for debugging.
 - Vite manual chunks split Three.js and icons into separate vendor assets for better cache behavior.
 - `vercel.json` configures static deploy output plus cache/security headers.
 - The production container serves the built Vite app through nginx with cache and security headers.
