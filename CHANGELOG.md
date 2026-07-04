@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.0 - 2026-07-04
+
+- Added local run-history analytics for the last 25 completed runs.
+- Added RPC methods for run history, clearing runtime errors, exporting settings, and resetting best score.
+- Added visibility auto-pause so browser tab switches do not silently destroy a run.
+- Added Vite manual chunking and build manifest output to split Three.js and icon vendor bundles for better caching.
+
 ## 2.1.0 - 2026-06-30
 
 - Added a PWA manifest, service worker, and offline cache status in the runtime telemetry panel.

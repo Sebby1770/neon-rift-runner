@@ -72,9 +72,10 @@ const STORAGE_KEYS = {
   bestScore: 'neon-rift-runner:best-score',
   settings: 'neon-rift-runner:settings',
   errors: 'neon-rift-runner:errors',
+  runs: 'neon-rift-runner:runs',
 };
 
-const APP_VERSION = '2.1.0';
+const APP_VERSION = '2.2.0';
 
 const savedSettings = readJson(STORAGE_KEYS.settings, {});
 
@@ -98,6 +99,7 @@ const state = {
   muted: Boolean(savedSettings.muted),
   performanceMode: Boolean(savedSettings.performanceMode),
   bestScore: readNumber(STORAGE_KEYS.bestScore, 0),
+  runHistory: readJson(STORAGE_KEYS.runs, []),
   fps: 60,
   errorCount: readJson(STORAGE_KEYS.errors, []).length,
   cacheStatus: navigator.onLine ? 'Online' : 'Offline',
@@ -774,6 +776,7 @@ function endGame() {
   if (state.mode === 'gameover') return;
   state.mode = 'gameover';
   persistBestScore();
+  persistRunSummary();
   finalScoreEl.textContent = formatScore(state.score);
   finalBestEl.textContent = formatScore(state.bestScore);
   setOverlay(gameOverPanel, true);
@@ -1335,6 +1338,22 @@ function persistBestScore() {
   }
 }
 
+function persistRunSummary() {
+  if (state.runTime < 1) return;
+  const entry = {
+    at: new Date().toISOString(),
+    version: APP_VERSION,
+    score: Math.round(state.score),
+    gates: state.gates,
+    streak: state.streak,
+    durationSeconds: Number(state.runTime.toFixed(2)),
+    zen: state.zen,
+    quality: state.performanceMode ? 'performance' : 'ultra',
+  };
+  state.runHistory = [entry, ...state.runHistory].slice(0, 25);
+  writeJson(STORAGE_KEYS.runs, state.runHistory);
+}
+
 function setPerformanceMode(enabled, persist = false) {
   state.performanceMode = enabled;
   applyQualitySettings();
@@ -1404,7 +1423,31 @@ function createRpcInterface() {
           fps: Math.round(state.fps),
           quality: state.performanceMode ? 'performance' : 'ultra',
           errors: readJson(STORAGE_KEYS.errors, []),
+          runs: state.runHistory.slice(0, 5),
           cache: state.cacheStatus,
+        };
+      }
+      if (method === 'runs.list') {
+        return { ok: true, runs: state.runHistory };
+      }
+      if (method === 'runs.clear') {
+        state.runHistory = [];
+        window.localStorage.removeItem(STORAGE_KEYS.runs);
+        return { ok: true };
+      }
+      if (method === 'errors.clear') {
+        state.errorCount = 0;
+        window.localStorage.removeItem(STORAGE_KEYS.errors);
+        updateHud();
+        return { ok: true };
+      }
+      if (method === 'settings.export') {
+        return {
+          ok: true,
+          version: APP_VERSION,
+          settings: readJson(STORAGE_KEYS.settings, {}),
+          bestScore: state.bestScore,
+          runCount: state.runHistory.length,
         };
       }
       if (method === 'quality.set') {
@@ -1441,6 +1484,12 @@ window.addEventListener('error', (event) => recordRuntimeError(event.error || ev
 window.addEventListener('unhandledrejection', (event) => recordRuntimeError(event.reason));
 window.addEventListener('online', () => updateCacheStatus('Online'));
 window.addEventListener('offline', () => updateCacheStatus('Offline'));
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && state.mode === 'playing') {
+    pauseGame();
+    showCallout('Auto-paused');
+  }
+});
 document.querySelectorAll('[data-hold]').forEach(bindHoldButton);
 
 startButton.addEventListener('click', () => startGame(false));
