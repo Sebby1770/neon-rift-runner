@@ -75,7 +75,14 @@ const STORAGE_KEYS = {
   runs: 'neon-rift-runner:runs',
 };
 
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.3.0';
+
+const SUPABASE_CONFIG = {
+  url: String(import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, ''),
+  key: String(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || ''),
+  table: cleanIdentifier(import.meta.env.VITE_SUPABASE_LEADERBOARD_TABLE || 'neon_rift_runs'),
+};
+SUPABASE_CONFIG.enabled = Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.key && SUPABASE_CONFIG.table);
 
 const savedSettings = readJson(STORAGE_KEYS.settings, {});
 
@@ -103,6 +110,7 @@ const state = {
   fps: 60,
   errorCount: readJson(STORAGE_KEYS.errors, []).length,
   cacheStatus: navigator.onLine ? 'Online' : 'Offline',
+  cloudStatus: SUPABASE_CONFIG.enabled ? 'Ready' : 'Local',
   score: 0,
   scoreCarry: 0,
   gates: 0,
@@ -1341,6 +1349,7 @@ function persistBestScore() {
 function persistRunSummary() {
   if (state.runTime < 1) return;
   const entry = {
+    runId: createRunId(),
     at: new Date().toISOString(),
     version: APP_VERSION,
     score: Math.round(state.score),
@@ -1352,6 +1361,87 @@ function persistRunSummary() {
   };
   state.runHistory = [entry, ...state.runHistory].slice(0, 25);
   writeJson(STORAGE_KEYS.runs, state.runHistory);
+  syncRunToSupabase(entry);
+}
+
+function createRunId() {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+    return window.crypto.randomUUID();
+  }
+  return `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function cleanIdentifier(value) {
+  const cleaned = String(value || '').replace(/[^a-zA-Z0-9_]/g, '');
+  return cleaned || 'neon_rift_runs';
+}
+
+function supabaseHeaders(extra = {}) {
+  return {
+    apikey: SUPABASE_CONFIG.key,
+    Authorization: `Bearer ${SUPABASE_CONFIG.key}`,
+    ...extra,
+  };
+}
+
+function leaderboardEndpoint(query = '') {
+  return `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.table}${query}`;
+}
+
+async function syncRunToSupabase(entry) {
+  if (!SUPABASE_CONFIG.enabled || !navigator.onLine) {
+    state.cloudStatus = SUPABASE_CONFIG.enabled ? 'Offline' : 'Local';
+    return { ok: false, reason: state.cloudStatus };
+  }
+
+  const payload = {
+    run_id: entry.runId,
+    app_version: entry.version,
+    score: entry.score,
+    gates: entry.gates,
+    streak: entry.streak,
+    duration_seconds: entry.durationSeconds,
+    zen: entry.zen,
+    quality: entry.quality,
+    user_agent: navigator.userAgent.slice(0, 180),
+  };
+
+  try {
+    const response = await fetch(leaderboardEndpoint(), {
+      method: 'POST',
+      headers: supabaseHeaders({
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      }),
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      throw new Error(`Supabase leaderboard sync failed with HTTP ${response.status}`);
+    }
+    state.cloudStatus = 'Synced';
+    return { ok: true };
+  } catch (error) {
+    state.cloudStatus = 'Sync error';
+    recordRuntimeError(error);
+    return { ok: false, reason: error.message };
+  } finally {
+    updateHud();
+  }
+}
+
+async function fetchSupabaseLeaderboard(limit = 10) {
+  if (!SUPABASE_CONFIG.enabled) {
+    return { ok: false, reason: 'Supabase leaderboard is not configured.', rows: [] };
+  }
+  const safeLimit = Math.min(25, Math.max(1, Number(limit) || 10));
+  const query = `?select=score,gates,streak,duration_seconds,quality,zen,created_at&order=score.desc&limit=${safeLimit}`;
+  const response = await fetch(leaderboardEndpoint(query), {
+    headers: supabaseHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`Supabase leaderboard fetch failed with HTTP ${response.status}`);
+  }
+  return { ok: true, rows: await response.json() };
 }
 
 function setPerformanceMode(enabled, persist = false) {
@@ -1425,7 +1515,20 @@ function createRpcInterface() {
           errors: readJson(STORAGE_KEYS.errors, []),
           runs: state.runHistory.slice(0, 5),
           cache: state.cacheStatus,
+          cloud: state.cloudStatus,
+          leaderboard: {
+            enabled: SUPABASE_CONFIG.enabled,
+            table: SUPABASE_CONFIG.table,
+          },
         };
+      }
+      if (method === 'leaderboard.get') {
+        return fetchSupabaseLeaderboard(params.limit);
+      }
+      if (method === 'cloud.syncLast') {
+        const [latest] = state.runHistory;
+        if (!latest) return Promise.resolve({ ok: false, reason: 'No completed run is available.' });
+        return syncRunToSupabase(latest);
       }
       if (method === 'runs.list') {
         return { ok: true, runs: state.runHistory };

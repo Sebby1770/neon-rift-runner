@@ -4,7 +4,7 @@ A full-screen 3D arcade tunnel runner built with Three.js, Vite, and a little We
 
 Fly through neon gates, collect boost and rift shards, dodge moving slicers, and charge Overdrive for a short invulnerable speed burst.
 
-This refresh adds production-style polish from the reference stack: persistent best scores, saved settings, run-history analytics, FPS telemetry, runtime error logging, automatic performance mode, offline cache, a browser RPC telemetry surface, health checks, Docker/nginx deployment, Kubernetes manifests, and GitHub Actions CI.
+This refresh adds production-style polish from the reference stack: persistent best scores, saved settings, run-history analytics, optional Supabase leaderboard sync, FPS telemetry, runtime error logging, automatic performance mode, offline cache, a browser RPC telemetry surface, health checks, Vercel config, Docker/nginx deployment, Kubernetes manifests, and GitHub Actions CI.
 
 ## Play
 
@@ -28,6 +28,20 @@ Then open the local Vite URL.
 ```bash
 npm run build
 ```
+
+## Vercel + Supabase
+
+Deploy to Vercel with the included `vercel.json`. The build command is `npm run build` and the output directory is `dist`.
+
+Optional leaderboard sync uses Supabase's REST API from the browser with a publishable/anon key. Apply the SQL in `supabase/migrations`, then set:
+
+```bash
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+VITE_SUPABASE_LEADERBOARD_TABLE=neon_rift_runs
+```
+
+When configured, completed runs are still saved locally and are also posted to Supabase. Leaderboard reads are available through `window.neonRiftRunner.rpc('leaderboard.get', { limit: 10 })`.
 
 ## Check
 
@@ -59,7 +73,10 @@ kubectl apply -f k8s/deployment.yaml
 - `/health.json` supports static hosting, load balancers, and Kubernetes probes.
 - `window.neonRiftRunner.rpc('telemetry.get')` exposes local runtime telemetry for debugging.
 - `window.neonRiftRunner.rpc('runs.list')` and `window.neonRiftRunner.rpc('settings.export')` expose local analytics/settings snapshots.
+- `window.neonRiftRunner.rpc('leaderboard.get')` reads the optional Supabase leaderboard.
+- `window.neonRiftRunner.rpc('cloud.syncLast')` retries the latest run against Supabase.
 - Vite manual chunks split Three.js and icons into separate vendor assets for better cache behavior.
+- `vercel.json` configures static deploy output plus cache/security headers.
 - The production container serves the built Vite app through nginx with cache and security headers.
 
 ## Changelog

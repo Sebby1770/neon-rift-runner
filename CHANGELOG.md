@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.3.0 - 2026-07-04
+
+- Added Vercel static deployment configuration with immutable asset caching and security headers.
+- Added optional Supabase leaderboard sync for completed runs using browser-safe publishable/anon keys.
+- Added `leaderboard.get` and `cloud.syncLast` RPC methods, `.env.example`, and Supabase migration SQL with RLS.
+- Bumped package, health, and service-worker versions to `2.3.0`.
+
 ## 2.2.0 - 2026-07-04
 
 - Added local run-history analytics for the last 25 completed runs.
