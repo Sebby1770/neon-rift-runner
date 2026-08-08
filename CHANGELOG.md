@@ -1,0 +1,35 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+## [2.0.0] — 2026-04-08
+
+### Architecture
+- Split the monolithic `src/main.js` into ES modules under `src/game/`:
+  - `state.js` — pure game state factory and score helpers
+  - `difficulty.js` — progressive difficulty curves
+  - `storage.js` — localStorage high scores and settings
+  - `rng.js` — seeded PRNG for daily challenges
+  - `audio.js`, `input.js`, `entities.js`, `world.js`, `materials.js`
+- Bootstrap/orchestration remains in `src/main.js`
+
+### Features
+- **High scores**: top-10 leaderboards for Normal, Zen, and Daily (localStorage)
+- **Daily Challenge**: date-seeded RNG so everyone gets the same layout for a given day
+- **Settings panel**: mute, SFX volume, bloom toggle, reduced motion (persisted)
+- **Near-miss bonus** when skimming hazards
+- **Milestone callouts** at 10/25/50/100 gates and score thresholds
+- **Richer game-over**: score, gates, max streak, run time, best ever, NEW BEST badge
+- **Copy score** share button
+- Soft difficulty ramp: denser hazards, faster slicers, slightly smaller gates over time
+
+### Quality
+- Vitest unit tests for `state`, `difficulty`, `storage`, and `rng`
+- GitHub Actions CI (`npm ci`, `test`, `build`)
+- package.json bumped to `2.0.0` with repository metadata
+- Expanded README
+
+## [1.0.0] — initial
+
+- 3D tunnel runner with gates, hazards, pickups, boost, overdrive, zen mode
+- Touch controls, Web Audio synth, bloom post-processing

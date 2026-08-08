@@ -1,16 +1,41 @@
 {
   "name": "neon-rift-runner",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
+  "description": "Neon Rift Runner — a full-screen 3D cyberpunk tunnel arcade built with Three.js and Vite.",
+  "author": "Sebastian Forbes",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sebby1770/neon-rift-runner.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Sebby1770/neon-rift-runner/issues"
+  },
+  "homepage": "https://github.com/Sebby1770/neon-rift-runner#readme",
+  "keywords": [
+    "three.js",
+    "game",
+    "arcade",
+    "vite",
+    "webgl",
+    "cyberpunk"
+  ],
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "node --check src/main.js && node --check src/game/state.js && node --check src/game/difficulty.js && node --check src/game/storage.js && node --check src/game/rng.js && node --check src/game/audio.js && node --check src/game/input.js"
   },
   "dependencies": {
     "lucide": "^0.475.0",
     "three": "^0.172.0",
     "vite": "^6.1.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.5"
   }
 }

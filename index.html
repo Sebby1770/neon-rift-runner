@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#050609" />
+    <meta
+      name="description"
+      content="Neon Rift Runner — 3D cyberpunk tunnel arcade. Thread the gates, steal charge, outrun the collapsing skyline."
+    />
     <title>Neon Rift Runner</title>
   </head>
   <body>
@@ -38,20 +42,46 @@
       </section>
 
       <section id="splash" class="overlay is-visible">
-        <div class="title-lockup">
-          <p class="eyebrow">Pulse flight arcade</p>
-          <h1>Neon Rift Runner</h1>
-          <p class="tagline">Thread the gates. Steal charge. Outrun the collapsing skyline.</p>
-        </div>
-        <div class="actions">
-          <button id="startButton" class="primary">
-            <i data-lucide="play"></i>
-            <span>Launch</span>
-          </button>
-          <button id="zenButton" class="secondary">
-            <i data-lucide="sparkles"></i>
-            <span>Zen Run</span>
-          </button>
+        <div class="splash-layout">
+          <div class="title-lockup">
+            <p class="eyebrow">Pulse flight arcade</p>
+            <h1>Neon Rift Runner</h1>
+            <p class="tagline">Thread the gates. Steal charge. Outrun the collapsing skyline.</p>
+            <div class="best-row" aria-label="Best scores">
+              <div class="best-chip">
+                <span>Best</span>
+                <strong id="splashBest">—</strong>
+              </div>
+              <div class="best-chip daily">
+                <span>Daily best</span>
+                <strong id="splashDailyBest">—</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="startButton" class="primary">
+              <i data-lucide="play"></i>
+              <span>Launch</span>
+            </button>
+            <button id="dailyButton" class="secondary daily-btn">
+              <i data-lucide="calendar"></i>
+              <span>Daily Challenge</span>
+            </button>
+            <button id="zenButton" class="secondary">
+              <i data-lucide="sparkles"></i>
+              <span>Zen Run</span>
+            </button>
+          </div>
+
+          <div class="leaderboard-panel" aria-label="High scores">
+            <div class="leaderboard-tabs" role="tablist">
+              <button type="button" class="is-active" data-board="normal" role="tab">Normal</button>
+              <button type="button" data-board="zen" role="tab">Zen</button>
+              <button type="button" data-board="daily" role="tab">Daily</button>
+            </div>
+            <ol id="leaderboardList" class="leaderboard-list"></ol>
+          </div>
         </div>
       </section>
 
@@ -76,17 +106,64 @@
         <div class="title-lockup">
           <p class="eyebrow">Signal lost</p>
           <h2>Run Complete</h2>
-          <p class="tagline">Score <strong id="finalScore">0</strong></p>
+          <p id="newBest" class="new-best" aria-live="polite">New Best</p>
+          <p class="tagline score-line">Score <strong id="finalScore">0</strong></p>
+        </div>
+        <div class="stats-grid" aria-label="Run statistics">
+          <div><span>Gates</span><strong id="finalGates">0</strong></div>
+          <div><span>Max streak</span><strong id="finalStreak">0</strong></div>
+          <div><span>Time</span><strong id="finalTime">0:00</strong></div>
+          <div><span>Best ever</span><strong id="finalBest">0</strong></div>
         </div>
         <div class="actions">
           <button id="restartButton" class="primary">
             <i data-lucide="rotate-ccw"></i>
             <span>Run Again</span>
           </button>
+          <button id="shareButton" class="secondary">
+            <i data-lucide="share-2"></i>
+            <span>Copy Score</span>
+          </button>
+        </div>
+      </section>
+
+      <section id="settingsPanel" class="overlay compact settings-overlay" aria-label="Settings">
+        <div class="settings-card">
+          <div class="title-lockup">
+            <p class="eyebrow">Signal config</p>
+            <h2 class="settings-title">Settings</h2>
+          </div>
+          <div class="settings-grid">
+            <label class="setting-row">
+              <span>Mute SFX</span>
+              <input id="muteToggle" type="checkbox" />
+            </label>
+            <label class="setting-row">
+              <span>SFX volume</span>
+              <input id="sfxVolume" type="range" min="0" max="100" value="80" />
+            </label>
+            <label class="setting-row">
+              <span>Bloom</span>
+              <input id="bloomToggle" type="checkbox" checked />
+            </label>
+            <label class="setting-row">
+              <span>Reduced motion</span>
+              <input id="reducedMotionToggle" type="checkbox" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="closeSettings" class="primary">
+              <i data-lucide="check"></i>
+              <span>Done</span>
+            </button>
+          </div>
         </div>
       </section>
 
       <nav class="quick-actions" aria-label="Game controls">
+        <button id="settingsButton" title="Settings">
+          <i data-lucide="settings"></i>
+        </button>
         <button id="pauseButton" title="Pause">
           <i data-lucide="pause"></i>
         </button>

@@ -72,7 +72,11 @@ canvas {
 .stats,
 .quick-actions,
 .touch-controls,
-.callout {
+.callout,
+.leaderboard-panel,
+.best-chip,
+.stats-grid,
+.settings-card {
   backdrop-filter: blur(18px);
   background: rgba(8, 11, 18, 0.58);
   border: 1px solid rgba(255, 255, 255, 0.13);
@@ -117,7 +121,9 @@ canvas {
 }
 
 .meter span,
-.stats span {
+.stats span,
+.stats-grid span,
+.best-chip span {
   color: rgba(248, 251, 255, 0.66);
   font-size: 0.72rem;
   font-weight: 800;
@@ -174,7 +180,9 @@ canvas {
   background: rgba(255, 255, 255, 0.045);
 }
 
-.stats strong {
+.stats strong,
+.stats-grid strong,
+.best-chip strong {
   display: block;
   margin-top: 2px;
   color: #fff;
@@ -191,6 +199,7 @@ canvas {
   place-items: center;
   padding: 24px;
   text-align: center;
+  overflow-y: auto;
   background:
     linear-gradient(180deg, rgba(5, 6, 9, 0.2), rgba(5, 6, 9, 0.68)),
     radial-gradient(circle at 50% 45%, rgba(26, 246, 185, 0.16), transparent 34rem);
@@ -203,6 +212,13 @@ canvas {
 .overlay.compact {
   background: rgba(5, 6, 9, 0.64);
   backdrop-filter: blur(10px);
+}
+
+.splash-layout {
+  width: min(820px, 100%);
+  display: grid;
+  gap: 8px;
+  justify-items: center;
 }
 
 .title-lockup {
@@ -230,11 +246,15 @@ h2 {
 }
 
 h1 {
-  font-size: clamp(3.8rem, 10vw, 8.8rem);
+  font-size: clamp(3.2rem, 9vw, 7.6rem);
 }
 
 h2 {
-  font-size: clamp(3rem, 8vw, 6.4rem);
+  font-size: clamp(2.6rem, 7vw, 5.4rem);
+}
+
+.settings-title {
+  font-size: clamp(2rem, 5vw, 3.2rem);
 }
 
 .tagline {
@@ -245,12 +265,41 @@ h2 {
   line-height: 1.45;
 }
 
+.score-line strong {
+  color: #fff068;
+}
+
+.best-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.best-chip {
+  min-width: 120px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.best-chip.daily {
+  border-color: rgba(191, 114, 255, 0.35);
+  box-shadow: 0 0 24px rgba(191, 114, 255, 0.12);
+}
+
+.best-chip strong {
+  font-size: 1.15rem;
+  color: #38f8ce;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 12px;
-  margin-top: 34px;
+  margin-top: 28px;
 }
 
 .actions button,
@@ -291,6 +340,188 @@ h2 {
   background: rgba(255, 255, 255, 0.09);
   color: #f8fbff;
   border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.daily-btn {
+  border-color: rgba(191, 114, 255, 0.45);
+  background: linear-gradient(135deg, rgba(191, 114, 255, 0.22), rgba(42, 244, 188, 0.12));
+  box-shadow: 0 0 28px rgba(191, 114, 255, 0.18);
+}
+
+/* Leaderboard */
+.leaderboard-panel {
+  width: min(420px, 100%);
+  margin-top: 28px;
+  padding: 14px 16px 12px;
+  border-radius: 10px;
+  text-align: left;
+}
+
+.leaderboard-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.leaderboard-tabs button {
+  flex: 1;
+  min-height: 34px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(248, 251, 255, 0.7);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.leaderboard-tabs button.is-active {
+  color: #050609;
+  background: linear-gradient(135deg, #38f8ce, #fff068);
+  border-color: transparent;
+}
+
+.leaderboard-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.leaderboard-list li {
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.88rem;
+}
+
+.leaderboard-list li.empty {
+  display: block;
+  color: rgba(248, 251, 255, 0.5);
+  text-align: center;
+  padding: 16px 8px;
+  border: 0;
+  font-size: 0.82rem;
+}
+
+.leaderboard-list .rank {
+  color: #fff068;
+  font-weight: 900;
+  font-size: 0.75rem;
+}
+
+.leaderboard-list .pts {
+  font-weight: 800;
+  color: #fff;
+}
+
+.leaderboard-list .meta {
+  color: rgba(248, 251, 255, 0.5);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+/* Game over stats */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(70px, 1fr));
+  gap: 1px;
+  width: min(520px, 100%);
+  margin: 22px auto 0;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.stats-grid div {
+  padding: 12px 10px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.stats-grid strong {
+  font-size: 1.05rem;
+}
+
+.new-best {
+  display: none;
+  margin: 14px 0 0;
+  color: #050609;
+  background: linear-gradient(135deg, #fff068, #38f8ce);
+  font-size: 0.78rem;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  border-radius: 999px;
+  width: fit-content;
+  margin-left: auto;
+  margin-right: auto;
+  box-shadow: 0 0 28px rgba(56, 248, 206, 0.45);
+}
+
+.new-best.is-visible {
+  display: inline-block;
+  animation: bestPulse 900ms ease-in-out infinite alternate;
+}
+
+@keyframes bestPulse {
+  from {
+    filter: brightness(1);
+    transform: scale(1);
+  }
+  to {
+    filter: brightness(1.15);
+    transform: scale(1.04);
+  }
+}
+
+/* Settings */
+.settings-overlay {
+  z-index: 6;
+}
+
+.settings-card {
+  width: min(420px, 100%);
+  padding: 28px 24px 22px;
+  border-radius: 12px;
+}
+
+.settings-grid {
+  display: grid;
+  gap: 14px;
+  margin-top: 22px;
+  text-align: left;
+}
+
+.setting-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.setting-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #38f8ce;
+  cursor: pointer;
+}
+
+.setting-row input[type="range"] {
+  width: 120px;
+  accent-color: #fff068;
+  cursor: pointer;
 }
 
 .quick-actions {
@@ -405,6 +636,10 @@ h2 {
     justify-self: stretch;
     width: 100%;
   }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 @media (max-width: 760px), (pointer: coarse) {
@@ -453,7 +688,7 @@ h2 {
   }
 
   h1 {
-    font-size: clamp(3rem, 16vw, 5.2rem);
+    font-size: clamp(2.6rem, 14vw, 4.6rem);
   }
 
   .tagline {
@@ -478,12 +713,29 @@ h2 {
   .touch-controls button {
     width: 100%;
   }
+
+  .leaderboard-panel {
+    margin-top: 18px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .actions button,
   .quick-actions button,
-  .touch-controls button {
+  .touch-controls button,
+  .callout,
+  .new-best {
     transition: none;
+    animation: none;
   }
+}
+
+html.reduced-motion .actions button,
+html.reduced-motion .quick-actions button,
+html.reduced-motion .touch-controls button,
+html.reduced-motion .callout,
+html.reduced-motion .new-best,
+html.reduced-motion #game.is-overdrive .brand-mark {
+  transition: none !important;
+  animation: none !important;
 }
