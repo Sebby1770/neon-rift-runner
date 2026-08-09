@@ -44,6 +44,16 @@ export function doubleHazardChance(runTime) {
   return 0.22;
 }
 
+/** Chance a hazard spawn is a gap wall (scales with time). */
+export function gapWallChance(runTime) {
+  return clamp(0.06 + runTime * 0.0035, 0.06, 0.32);
+}
+
+/** Gap wall opening width (world units) — tightens slowly. */
+export function gapWallWidth(runTime) {
+  return clamp(2.45 - runTime * 0.008, 1.55, 2.45);
+}
+
 /** Pickup spawn interval range [min, max]. */
 export function pickupIntervalRange(runTime) {
   const tighten = Math.min(0.8, runTime * 0.006);

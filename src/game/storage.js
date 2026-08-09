@@ -1,5 +1,5 @@
 /**
- * localStorage persistence for high scores, settings, and daily seed helpers.
+ * localStorage persistence for high scores, settings, achievements, and flags.
  * Pure enough to unit-test with a mock storage adapter.
  */
 
@@ -8,11 +8,14 @@ export const STORAGE_KEYS = {
   normal: 'neon-rift:scores:normal',
   zen: 'neon-rift:scores:zen',
   daily: 'neon-rift:scores:daily',
+  achievements: 'neon-rift:achievements',
+  tutorial: 'neon-rift:tutorial',
 };
 
 const DEFAULT_SETTINGS = {
   muted: false,
-  musicVolume: 0.7,
+  music: true,
+  musicVolume: 0.55,
   sfxVolume: 0.8,
   bloom: true,
   reducedMotion: false,
@@ -171,7 +174,9 @@ export function buildShareText(summary, { mode = 'normal', dailyKey } = {}) {
       ? `Daily Challenge (${dailyKey || summary.dailyKey || getTodayKey()})`
       : mode === 'zen'
         ? 'Zen Run'
-        : 'Normal Run';
+        : mode === 'practice'
+          ? 'Practice'
+          : 'Normal Run';
   const time =
     typeof summary.runTime === 'number'
       ? `${Math.floor(summary.runTime / 60)}:${String(Math.floor(summary.runTime) % 60).padStart(2, '0')}`
@@ -182,4 +187,79 @@ export function buildShareText(summary, { mode = 'normal', dailyKey } = {}) {
     `Gates: ${summary.gates} · Max streak: ${summary.maxStreak} · Time: ${time}`,
     'Thread the gates. Steal charge. Outrun the collapsing skyline.',
   ].join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Achievements
+// ---------------------------------------------------------------------------
+
+/**
+ * Load unlocked achievement ids. Returns string[].
+ */
+export function loadAchievements(storage = defaultStorage()) {
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(STORAGE_KEYS.achievements);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((id) => typeof id === 'string');
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Persist unlocked achievement ids (deduped).
+ * Returns the saved array.
+ */
+export function saveAchievements(ids, storage = defaultStorage()) {
+  const unique = [...new Set((ids || []).filter((id) => typeof id === 'string'))];
+  if (!storage) return unique;
+  try {
+    storage.setItem(STORAGE_KEYS.achievements, JSON.stringify(unique));
+  } catch {
+    // quota
+  }
+  return unique;
+}
+
+/**
+ * Merge newly unlocked ids into storage. Returns full unlocked list.
+ */
+export function unlockAchievements(newIds, storage = defaultStorage()) {
+  const current = loadAchievements(storage);
+  const merged = saveAchievements([...current, ...(newIds || [])], storage);
+  return merged;
+}
+
+// ---------------------------------------------------------------------------
+// Tutorial flag
+// ---------------------------------------------------------------------------
+
+export function hasSeenTutorial(storage = defaultStorage()) {
+  if (!storage) return false;
+  try {
+    return storage.getItem(STORAGE_KEYS.tutorial) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markTutorialSeen(storage = defaultStorage()) {
+  if (!storage) return;
+  try {
+    storage.setItem(STORAGE_KEYS.tutorial, '1');
+  } catch {
+    // ignore
+  }
+}
+
+export function resetTutorial(storage = defaultStorage()) {
+  if (!storage) return;
+  try {
+    storage.removeItem(STORAGE_KEYS.tutorial);
+  } catch {
+    // ignore
+  }
 }

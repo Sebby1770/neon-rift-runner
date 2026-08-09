@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.1.0] — 2026-08-09
+
+### Features
+- **Achievements** — 10 unlocks (first gate, gate milestones, scores, streak, near-miss master, survivor, daily pilot, zen master) with toast callouts and a list in Settings; persisted in localStorage
+- **First-run tutorial** — compact overlay for move / boost / gates / overdrive; dismiss once or re-show from Settings
+- **Gap wall hazard** — horizontal barrier with a drifting opening; density and gap width scale with difficulty; zen still spawns no deadly hazards
+- **Ambient music bed** — optional low pad + arpeggio; Music toggle + volume in Settings; respects mute
+- **Combo / heat polish** — Flow stat pulses and color-shifts at high combo; HUD glow intensifies
+- **Practice mode** — free-fly from splash: infinite hull, no game-over, Esc → title; sparse hazards for fun
+- **PWA lite** — `manifest.webmanifest`, icons, basic service worker offline shell cache
+
+### Quality
+- Vitest coverage for achievements, tutorial/achievement storage, practice state, gap-wall helpers
+- package version `2.1.0`; README expanded
+
 ## [2.0.0] — 2026-04-08
 
 ### Architecture

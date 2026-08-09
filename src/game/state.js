@@ -14,6 +14,7 @@ export function createGameState(overrides = {}) {
     mode: MODES.TITLE,
     zen: false,
     daily: false,
+    practice: false,
     dailyKey: null,
     muted: false,
     score: 0,
@@ -39,6 +40,7 @@ export function createGameState(overrides = {}) {
     // Milestone tracking
     milestonesHit: {},
     nearMissCooldown: 0,
+    nearMisses: 0,
     // Best-score tracking for current session end
     isNewBest: false,
     ...overrides,
@@ -49,33 +51,38 @@ export function createGameState(overrides = {}) {
  * Reset run-specific fields for a new game start.
  * Preserves mute and settings-related fields.
  */
-export function resetRunState(state, { zen = false, daily = false, dailyKey = null } = {}) {
+export function resetRunState(
+  state,
+  { zen = false, daily = false, practice = false, dailyKey = null } = {},
+) {
   state.mode = MODES.PLAYING;
   state.zen = zen;
   state.daily = daily;
+  state.practice = practice;
   state.dailyKey = dailyKey;
   state.score = 0;
   state.scoreCarry = 0;
   state.gates = 0;
   state.streak = 0;
   state.maxStreak = 0;
-  state.hull = zen ? 999 : 100;
+  state.hull = practice || zen ? 999 : 100;
   state.boost = 100;
   state.rift = 0;
   state.overdrive = 0;
   state.combo = 1;
-  state.speed = zen ? 23 : 28;
+  state.speed = zen || practice ? 23 : 28;
   state.targetSpeed = state.speed;
   state.spawnTimer = 0;
   state.pickupTimer = 0;
   state.hazardTimer = 1.2;
   state.lanePulse = 0;
-  state.invulnerable = 1.6;
+  state.invulnerable = practice ? 9999 : 1.6;
   state.shake = 0;
   state.runTime = 0;
   state.calloutTimer = 0;
   state.milestonesHit = {};
   state.nearMissCooldown = 0;
+  state.nearMisses = 0;
   state.isNewBest = false;
   return state;
 }
@@ -123,6 +130,7 @@ export function applyNearMiss(state) {
   state.score += points;
   state.combo = Math.min(6, state.combo + 0.12);
   state.nearMissCooldown = 0.55;
+  state.nearMisses = (state.nearMisses || 0) + 1;
   return points;
 }
 
@@ -164,12 +172,23 @@ export function getRunSummary(state) {
     runTime: state.runTime,
     zen: state.zen,
     daily: state.daily,
+    practice: state.practice,
     dailyKey: state.dailyKey,
+    nearMisses: state.nearMisses || 0,
+  };
+}
+
+/** Extra run counters for achievements (not all stored on leaderboard). */
+export function getRunExtras(state) {
+  return {
+    nearMisses: state.nearMisses || 0,
+    practice: !!state.practice,
   };
 }
 
 /** Leaderboard mode key for a finished run. */
 export function leaderboardMode(state) {
+  if (state.practice) return null;
   if (state.daily) return 'daily';
   if (state.zen) return 'zen';
   return 'normal';

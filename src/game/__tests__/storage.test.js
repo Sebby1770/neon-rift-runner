@@ -3,10 +3,16 @@ import {
   buildShareText,
   getBestScore,
   getTodayKey,
+  hasSeenTutorial,
+  loadAchievements,
   loadLeaderboard,
   loadSettings,
+  markTutorialSeen,
+  resetTutorial,
+  saveAchievements,
   saveSettings,
   submitScore,
+  unlockAchievements,
   STORAGE_KEYS,
 } from '../storage.js';
 import { createRng, hashString, createDailyRng } from '../rng.js';
@@ -148,5 +154,44 @@ describe('STORAGE_KEYS', () => {
   it('uses namespaced keys', () => {
     expect(STORAGE_KEYS.settings).toContain('neon-rift');
     expect(STORAGE_KEYS.normal).toContain('scores');
+    expect(STORAGE_KEYS.achievements).toContain('achievements');
+    expect(STORAGE_KEYS.tutorial).toContain('tutorial');
+  });
+});
+
+describe('achievements storage', () => {
+  it('loads empty by default', () => {
+    const store = memoryStorage();
+    expect(loadAchievements(store)).toEqual([]);
+  });
+
+  it('saves and unlocks', () => {
+    const store = memoryStorage();
+    saveAchievements(['first_gate'], store);
+    expect(loadAchievements(store)).toEqual(['first_gate']);
+    const all = unlockAchievements(['gates_50', 'first_gate'], store);
+    expect(all).toContain('first_gate');
+    expect(all).toContain('gates_50');
+    expect(all).toHaveLength(2);
+  });
+});
+
+describe('tutorial flag', () => {
+  it('starts unseen and can be marked / reset', () => {
+    const store = memoryStorage();
+    expect(hasSeenTutorial(store)).toBe(false);
+    markTutorialSeen(store);
+    expect(hasSeenTutorial(store)).toBe(true);
+    resetTutorial(store);
+    expect(hasSeenTutorial(store)).toBe(false);
+  });
+});
+
+describe('settings music defaults', () => {
+  it('includes music toggle and volume', () => {
+    const store = memoryStorage();
+    const s = loadSettings(store);
+    expect(s.music).toBe(true);
+    expect(s.musicVolume).toBeGreaterThan(0);
   });
 });

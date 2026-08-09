@@ -4,10 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#050609" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta
       name="description"
       content="Neon Rift Runner — 3D cyberpunk tunnel arcade. Thread the gates, steal charge, outrun the collapsing skyline."
     />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <title>Neon Rift Runner</title>
   </head>
   <body>
@@ -18,6 +24,7 @@
         <div class="brand">
           <span class="brand-mark"></span>
           <span>Neon Rift Runner</span>
+          <span id="modeBadge" class="mode-badge" hidden></span>
         </div>
         <div class="meter-row">
           <div class="meter">
@@ -35,7 +42,9 @@
         </div>
         <div class="stats">
           <div><span>Score</span><strong id="score">0</strong></div>
-          <div><span>Flow</span><strong id="combo">x1.0</strong></div>
+          <div class="stat-combo">
+            <span>Flow</span><strong id="combo">x1.0</strong>
+          </div>
           <div><span>Streak</span><strong id="streak">0</strong></div>
           <div><span>Gates</span><strong id="gates">0</strong></div>
         </div>
@@ -56,6 +65,10 @@
                 <span>Daily best</span>
                 <strong id="splashDailyBest">—</strong>
               </div>
+              <div class="best-chip achievements-chip">
+                <span>Achievements</span>
+                <strong id="splashAchievements">0/10</strong>
+              </div>
             </div>
           </div>
 
@@ -72,6 +85,10 @@
               <i data-lucide="sparkles"></i>
               <span>Zen Run</span>
             </button>
+            <button id="practiceButton" class="secondary practice-btn">
+              <i data-lucide="wind"></i>
+              <span>Practice</span>
+            </button>
           </div>
 
           <div class="leaderboard-panel" aria-label="High scores">
@@ -81,6 +98,51 @@
               <button type="button" data-board="daily" role="tab">Daily</button>
             </div>
             <ol id="leaderboardList" class="leaderboard-list"></ol>
+          </div>
+        </div>
+      </section>
+
+      <section id="tutorialPanel" class="overlay compact tutorial-overlay" aria-label="Tutorial">
+        <div class="tutorial-card">
+          <div class="title-lockup">
+            <p class="eyebrow">Flight brief</p>
+            <h2 class="settings-title">How to fly</h2>
+          </div>
+          <ul class="tutorial-list">
+            <li>
+              <i data-lucide="move"></i>
+              <div>
+                <strong>Move</strong>
+                <span>WASD / arrows or on-screen pad</span>
+              </div>
+            </li>
+            <li>
+              <i data-lucide="zap"></i>
+              <div>
+                <strong>Boost</strong>
+                <span>Hold Space / Shift for speed and flow</span>
+              </div>
+            </li>
+            <li>
+              <i data-lucide="circle-dot"></i>
+              <div>
+                <strong>Gates</strong>
+                <span>Thread neon rings to build streak and score</span>
+              </div>
+            </li>
+            <li>
+              <i data-lucide="flame"></i>
+              <div>
+                <strong>Overdrive</strong>
+                <span>Fill Rift meter — invulnerable smash burst</span>
+              </div>
+            </li>
+          </ul>
+          <div class="actions">
+            <button id="dismissTutorial" class="primary">
+              <i data-lucide="check"></i>
+              <span>Got it</span>
+            </button>
           </div>
         </div>
       </section>
@@ -98,6 +160,10 @@
           <button id="restartFromPause" class="secondary">
             <i data-lucide="rotate-ccw"></i>
             <span>Restart</span>
+          </button>
+          <button id="titleFromPause" class="secondary">
+            <i data-lucide="home"></i>
+            <span>Title</span>
           </button>
         </div>
       </section>
@@ -124,6 +190,10 @@
             <i data-lucide="share-2"></i>
             <span>Copy Score</span>
           </button>
+          <button id="titleFromOver" class="secondary">
+            <i data-lucide="home"></i>
+            <span>Title</span>
+          </button>
         </div>
       </section>
 
@@ -143,6 +213,14 @@
               <input id="sfxVolume" type="range" min="0" max="100" value="80" />
             </label>
             <label class="setting-row">
+              <span>Music</span>
+              <input id="musicToggle" type="checkbox" checked />
+            </label>
+            <label class="setting-row">
+              <span>Music volume</span>
+              <input id="musicVolume" type="range" min="0" max="100" value="55" />
+            </label>
+            <label class="setting-row">
               <span>Bloom</span>
               <input id="bloomToggle" type="checkbox" checked />
             </label>
@@ -151,7 +229,20 @@
               <input id="reducedMotionToggle" type="checkbox" />
             </label>
           </div>
-          <div class="actions">
+
+          <div class="achievements-section">
+            <div class="achievements-header">
+              <h3>Achievements</h3>
+              <span id="achievementsCount" class="achievements-count">0/10</span>
+            </div>
+            <ul id="achievementsList" class="achievements-list" aria-label="Achievements"></ul>
+          </div>
+
+          <div class="actions settings-actions">
+            <button id="resetTutorial" class="secondary">
+              <i data-lucide="book-open"></i>
+              <span>Show tutorial</span>
+            </button>
             <button id="closeSettings" class="primary">
               <i data-lucide="check"></i>
               <span>Done</span>
@@ -173,6 +264,7 @@
       </nav>
 
       <div id="callout" class="callout" aria-hidden="true"></div>
+      <div id="achievementToast" class="achievement-toast" aria-live="polite"></div>
 
       <nav class="touch-controls" aria-label="Touch flight controls">
         <button data-hold="left" title="Left">
@@ -194,5 +286,12 @@
     </main>
 
     <script type="module" src="/src/main.js"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+      }
+    </script>
   </body>
 </html>

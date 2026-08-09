@@ -5,6 +5,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 
+import { ACHIEVEMENTS, checkAchievements } from './game/achievements.js';
 import { createAudio } from './game/audio.js';
 import {
   baseTargetSpeed,
@@ -24,6 +25,8 @@ import {
   createShip,
   createShockwave,
   disposeObject,
+  isGapWallHit,
+  isGapWallNearMiss,
 } from './game/entities.js';
 import { bindAllHoldButtons, createKeys, handleKeyEvent } from './game/input.js';
 import { createMaterials, palette } from './game/materials.js';
@@ -43,6 +46,7 @@ import {
   createGameState,
   formatScore,
   formatTime,
+  getRunExtras,
   getRunSummary,
   leaderboardMode,
   MODES,
@@ -52,10 +56,15 @@ import {
   buildShareText,
   getBestScore,
   getTodayKey,
+  hasSeenTutorial,
+  loadAchievements,
   loadLeaderboard,
   loadSettings,
+  markTutorialSeen,
+  resetTutorial,
   saveSettings,
   submitScore,
+  unlockAchievements,
 } from './game/storage.js';
 import {
   createNebulaBands,
@@ -100,20 +109,34 @@ const settingsButton = document.querySelector('#settingsButton');
 const startButton = document.querySelector('#startButton');
 const zenButton = document.querySelector('#zenButton');
 const dailyButton = document.querySelector('#dailyButton');
+const practiceButton = document.querySelector('#practiceButton');
 const resumeButton = document.querySelector('#resumeButton');
 const restartButton = document.querySelector('#restartButton');
 const restartFromPause = document.querySelector('#restartFromPause');
+const titleFromPause = document.querySelector('#titleFromPause');
+const titleFromOver = document.querySelector('#titleFromOver');
 const shareButton = document.querySelector('#shareButton');
 const closeSettingsButton = document.querySelector('#closeSettings');
+const resetTutorialButton = document.querySelector('#resetTutorial');
+const dismissTutorialButton = document.querySelector('#dismissTutorial');
+const tutorialPanel = document.querySelector('#tutorialPanel');
 const callout = document.querySelector('#callout');
+const achievementToast = document.querySelector('#achievementToast');
 const splashBestEl = document.querySelector('#splashBest');
 const splashDailyBestEl = document.querySelector('#splashDailyBest');
+const splashAchievementsEl = document.querySelector('#splashAchievements');
+const achievementsList = document.querySelector('#achievementsList');
+const achievementsCountEl = document.querySelector('#achievementsCount');
 const leaderboardList = document.querySelector('#leaderboardList');
 const leaderboardTabs = document.querySelectorAll('[data-board]');
 const bloomToggle = document.querySelector('#bloomToggle');
 const reducedMotionToggle = document.querySelector('#reducedMotionToggle');
 const sfxVolumeSlider = document.querySelector('#sfxVolume');
+const musicVolumeSlider = document.querySelector('#musicVolume');
+const musicToggle = document.querySelector('#musicToggle');
 const muteToggle = document.querySelector('#muteToggle');
+const modeBadge = document.querySelector('#modeBadge');
+const comboStat = document.querySelector('.stat-combo');
 
 // ---------------------------------------------------------------------------
 // Settings + state
@@ -125,10 +148,15 @@ const bounds = { x: 5.3, yMin: 1.1, yMax: 5.8 };
 let lastRunSummary = null;
 let activeBoardMode = 'normal';
 let bloomEnabled = settings.bloom !== false;
+let unlockedAchievements = new Set(loadAchievements());
+let achievementToastTimer = 0;
+let pendingAchievementToasts = [];
 
 const audio = createAudio({
   getMuted: () => state.muted || settings.muted,
   getSfxVolume: () => settings.sfxVolume ?? 0.8,
+  getMusicEnabled: () => settings.music !== false,
+  getMusicVolume: () => settings.musicVolume ?? 0.55,
 });
 
 // ---------------------------------------------------------------------------
@@ -235,6 +263,23 @@ function showCallout(message) {
   state.calloutTimer = 1.45;
 }
 
+function queueAchievementToast(achievement) {
+  pendingAchievementToasts.push(achievement);
+  if (achievementToastTimer <= 0) flushAchievementToast();
+}
+
+function flushAchievementToast() {
+  if (!achievementToast || !pendingAchievementToasts.length) {
+    if (achievementToast) achievementToast.classList.remove('is-visible');
+    return;
+  }
+  const next = pendingAchievementToasts.shift();
+  achievementToast.innerHTML = `<span class="ach-label">Achievement</span><strong>${next.name}</strong><span class="ach-desc">${next.description}</span>`;
+  achievementToast.classList.add('is-visible');
+  achievementToastTimer = 2.6;
+  audio.play('achievement');
+}
+
 function refreshSoundIcon() {
   const muted = state.muted || settings.muted;
   soundButton.innerHTML = `<i data-lucide="${muted ? 'volume-x' : 'volume-2'}"></i>`;
@@ -245,7 +290,12 @@ function syncSettingsUI() {
   if (bloomToggle) bloomToggle.checked = settings.bloom !== false;
   if (reducedMotionToggle) reducedMotionToggle.checked = !!settings.reducedMotion;
   if (sfxVolumeSlider) sfxVolumeSlider.value = String(Math.round((settings.sfxVolume ?? 0.8) * 100));
+  if (musicVolumeSlider) {
+    musicVolumeSlider.value = String(Math.round((settings.musicVolume ?? 0.55) * 100));
+  }
+  if (musicToggle) musicToggle.checked = settings.music !== false;
   if (muteToggle) muteToggle.checked = !!(state.muted || settings.muted);
+  renderAchievementsList();
 }
 
 function persistSettings() {
@@ -253,6 +303,29 @@ function persistSettings() {
     ...settings,
     muted: state.muted,
   });
+  audio.syncMusic();
+}
+
+function renderAchievementsList() {
+  const total = ACHIEVEMENTS.length;
+  const count = unlockedAchievements.size;
+  if (achievementsCountEl) achievementsCountEl.textContent = `${count}/${total}`;
+  if (splashAchievementsEl) splashAchievementsEl.textContent = `${count}/${total}`;
+  if (!achievementsList) return;
+  achievementsList.innerHTML = ACHIEVEMENTS.map((a) => {
+    const unlocked = unlockedAchievements.has(a.id);
+    return `<li class="${unlocked ? 'is-unlocked' : 'is-locked'}"><span class="ach-dot"></span><div><strong>${a.name}</strong><span>${a.description}</span></div></li>`;
+  }).join('');
+}
+
+function processAchievements(summary, extras) {
+  if (summary.practice) return;
+  const newly = checkAchievements(summary, extras, unlockedAchievements);
+  if (!newly.length) return;
+  for (const a of newly) unlockedAchievements.add(a.id);
+  unlockAchievements(newly.map((a) => a.id));
+  for (const a of newly) queueAchievementToast(a);
+  renderAchievementsList();
 }
 
 function refreshSplashMeta() {
@@ -264,7 +337,31 @@ function refreshSplashMeta() {
   if (splashDailyBestEl) {
     splashDailyBestEl.textContent = dailyBest > 0 ? formatScore(dailyBest) : '—';
   }
+  renderAchievementsList();
   renderLeaderboard(activeBoardMode);
+}
+
+function updateModeBadge() {
+  if (!modeBadge) return;
+  if (state.mode === MODES.TITLE || state.mode === MODES.GAMEOVER) {
+    modeBadge.hidden = true;
+    return;
+  }
+  if (state.practice) {
+    modeBadge.hidden = false;
+    modeBadge.textContent = 'Practice';
+    modeBadge.dataset.mode = 'practice';
+  } else if (state.daily) {
+    modeBadge.hidden = false;
+    modeBadge.textContent = 'Daily';
+    modeBadge.dataset.mode = 'daily';
+  } else if (state.zen) {
+    modeBadge.hidden = false;
+    modeBadge.textContent = 'Zen';
+    modeBadge.dataset.mode = 'zen';
+  } else {
+    modeBadge.hidden = true;
+  }
 }
 
 function renderLeaderboard(mode = 'normal') {
@@ -291,7 +388,7 @@ function renderLeaderboard(mode = 'normal') {
 // ---------------------------------------------------------------------------
 // Game flow
 // ---------------------------------------------------------------------------
-function startGame({ zen = false, daily = false } = {}) {
+function startGame({ zen = false, daily = false, practice = false } = {}) {
   resetRandomSource();
   let dailyKey = null;
   if (daily) {
@@ -299,10 +396,11 @@ function startGame({ zen = false, daily = false } = {}) {
     setRandomSource(createDailyRng(dailyKey));
   }
 
-  resetRunState(state, { zen, daily, dailyKey });
+  resetRunState(state, { zen, daily, practice, dailyKey });
   ship.position.set(0, 2.6, 0);
   ship.rotation.set(0, 0, 0);
   game.classList.remove('is-overdrive');
+  game.classList.toggle('is-practice', !!practice);
   callout.classList.remove('is-visible');
   callout.textContent = '';
   if (newBestEl) newBestEl.classList.remove('is-visible');
@@ -322,13 +420,40 @@ function startGame({ zen = false, daily = false } = {}) {
   setOverlay(pausePanel, false);
   setOverlay(gameOverPanel, false);
   setOverlay(settingsPanel, false);
+  setOverlay(tutorialPanel, false);
   audio.resume();
+  audio.startMusic();
   audio.play('launch');
+  updateModeBadge();
   updateHud();
+}
+
+function returnToTitle() {
+  state.mode = MODES.TITLE;
+  state.practice = false;
+  game.classList.remove('is-overdrive', 'is-practice');
+  clearGroup(groups.obstacles, materials);
+  clearGroup(groups.gates, materials);
+  clearGroup(groups.pickups, materials);
+  clearGroup(groups.effects, materials);
+  setOverlay(pausePanel, false);
+  setOverlay(gameOverPanel, false);
+  setOverlay(settingsPanel, false);
+  setOverlay(splash, true);
+  resetRandomSource();
+  refreshSplashMeta();
+  updateModeBadge();
+  updateHud();
+  audio.play('tap');
 }
 
 function pauseGame() {
   if (state.mode !== MODES.PLAYING) return;
+  // Practice: Esc returns to title (no score pressure)
+  if (state.practice) {
+    returnToTitle();
+    return;
+  }
   state.mode = MODES.PAUSED;
   setOverlay(pausePanel, true);
   audio.play('tap');
@@ -343,30 +468,43 @@ function resumeGame() {
 
 function endGame() {
   if (state.mode === MODES.GAMEOVER) return;
+  // Practice never game-overs from hull
+  if (state.practice) return;
+
   state.mode = MODES.GAMEOVER;
 
   const summary = getRunSummary(state);
+  const extras = getRunExtras(state);
   lastRunSummary = summary;
   const mode = leaderboardMode(state);
-  const result = submitScore(mode, summary, {
-    todayKey: summary.dailyKey || getTodayKey(),
-  });
+
+  let result = { isNewBest: false };
+  if (mode) {
+    result = submitScore(mode, summary, {
+      todayKey: summary.dailyKey || getTodayKey(),
+    });
+  }
   state.isNewBest = result.isNewBest;
+
+  processAchievements(summary, { ...extras, completed: true });
 
   if (finalScoreEl) finalScoreEl.textContent = formatScore(summary.score);
   if (finalGatesEl) finalGatesEl.textContent = String(summary.gates);
   if (finalStreakEl) finalStreakEl.textContent = String(summary.maxStreak);
   if (finalTimeEl) finalTimeEl.textContent = formatTime(summary.runTime);
-  const best = getBestScore(mode, {
-    todayKey: mode === 'daily' ? summary.dailyKey : undefined,
-  });
+  const best = mode
+    ? getBestScore(mode, {
+        todayKey: mode === 'daily' ? summary.dailyKey : undefined,
+      })
+    : 0;
   if (finalBestEl) finalBestEl.textContent = formatScore(best || summary.score);
-  if (newBestEl) newBestEl.classList.toggle('is-visible', result.isNewBest);
+  if (newBestEl) newBestEl.classList.toggle('is-visible', !!result.isNewBest);
 
   setOverlay(gameOverPanel, true);
   audio.play('crash');
   refreshSplashMeta();
   resetRandomSource();
+  updateModeBadge();
 }
 
 function openSettings() {
@@ -381,6 +519,17 @@ function closeSettings() {
   applyBloomSetting();
   applyReducedMotion();
   refreshSoundIcon();
+}
+
+function openTutorial() {
+  setOverlay(tutorialPanel, true);
+  createIcons({ icons });
+}
+
+function dismissTutorial() {
+  markTutorialSeen();
+  setOverlay(tutorialPanel, false);
+  audio.play('tap');
 }
 
 // ---------------------------------------------------------------------------
@@ -401,12 +550,22 @@ function update(delta) {
     (overdriveActive ? 20 : 0);
   state.speed = THREE.MathUtils.lerp(state.speed, state.targetSpeed, 1 - Math.exp(-delta * 2.5));
 
+  if (achievementToastTimer > 0) {
+    achievementToastTimer = Math.max(0, achievementToastTimer - delta);
+    if (achievementToastTimer === 0) flushAchievementToast();
+  }
+
   if (playing) {
     state.runTime += delta;
     state.spawnTimer -= delta;
     state.pickupTimer -= delta;
     state.hazardTimer -= delta;
-    state.invulnerable = Math.max(0, state.invulnerable - delta);
+    if (!state.practice) {
+      state.invulnerable = Math.max(0, state.invulnerable - delta);
+    } else {
+      state.invulnerable = Math.max(state.invulnerable, 999);
+      state.hull = 999;
+    }
     state.overdrive = Math.max(0, state.overdrive - delta);
     state.shake = Math.max(0, state.shake - delta * 2.4);
     state.combo = Math.max(1, state.combo - delta * (overdriveActive ? 0.01 : 0.05));
@@ -440,6 +599,11 @@ function update(delta) {
       state.scoreCarry -= gained;
     }
     updateCollisions();
+
+    // Live achievement checks mid-run (gates/score/streak) for toast feedback
+    if (!state.practice && state.runTime > 1) {
+      processAchievements(getRunSummary(state), getRunExtras(state));
+    }
 
     const milestones = checkMilestones(state);
     for (const msg of milestones) {
@@ -501,17 +665,20 @@ function spawnObjects() {
     }
   }
 
-  if (!state.zen && state.overdrive <= 0 && state.hazardTimer <= 0) {
-    state.hazardTimer = hazardSpawnInterval(rt);
+  // Zen: no deadly hazards. Practice: sparse hazards for free-fly (no hull loss).
+  const allowHazards = !state.zen && state.overdrive <= 0;
+  if (allowHazards && state.hazardTimer <= 0) {
+    const interval = state.practice ? hazardSpawnInterval(rt) * 1.8 : hazardSpawnInterval(rt);
+    state.hazardTimer = interval;
     groups.obstacles.add(createHazard(materials, { runTime: rt, randomX: randomFlightX }));
-    if (random() < doubleHazardChance(rt)) {
+    if (!state.practice && random() < doubleHazardChance(rt)) {
       groups.obstacles.add(createHazard(materials, { runTime: rt, randomX: randomFlightX }));
     }
   }
 
   if (state.pickupTimer <= 0) {
     const [lo, hi] = pickupIntervalRange(rt);
-    state.pickupTimer = randFloat(lo, hi);
+    state.pickupTimer = randFloat(lo, hi) * (state.practice ? 0.75 : 1);
     const roll = random();
     const kind = roll > 0.86 ? 'rift' : roll > 0.68 ? 'shield' : 'boost';
     groups.pickups.add(createPickup(materials, kind, { randomX: randomFlightX }));
@@ -600,6 +767,14 @@ function moveDynamicGroup(group, travel, delta, elapsed) {
       object.position.x =
         object.userData.baseX + Math.sin(elapsed * swaySpeed + object.userData.phase) * object.userData.sway;
     }
+    if (object.userData.variant === 'gapwall') {
+      const swaySpeed = object.userData.swaySpeed || 1.15;
+      const gapX =
+        (object.userData.baseGapX || 0) +
+        Math.sin(elapsed * swaySpeed + object.userData.phase) * (object.userData.sway || 1.8);
+      object.userData.gapX = gapX;
+      object.position.x = gapX;
+    }
     if (
       object.userData.type === 'boost' ||
       object.userData.type === 'shield' ||
@@ -608,7 +783,9 @@ function moveDynamicGroup(group, travel, delta, elapsed) {
       object.position.y =
         object.userData.baseY + Math.sin(elapsed * 2.4 + object.userData.phase) * 0.18;
     }
-    object.scale.multiplyScalar(1 + Math.sin(elapsed * 5 + object.position.z) * 0.0008);
+    if (object.userData.variant !== 'gapwall') {
+      object.scale.multiplyScalar(1 + Math.sin(elapsed * 5 + object.position.z) * 0.0008);
+    }
     if (object.position.z > 12) {
       group.remove(object);
       disposeObject(object, materials);
@@ -670,11 +847,15 @@ function updateCollisions() {
   if (state.overdrive > 0) {
     for (let i = groups.obstacles.children.length - 1; i >= 0; i -= 1) {
       const hazard = groups.obstacles.children[i];
-      if (shipPosition.distanceTo(hazard.position) > hazard.userData.radius + 0.72) continue;
+      const smash =
+        hazard.userData.variant === 'gapwall'
+          ? Math.abs(hazard.position.z) < 2.2
+          : shipPosition.distanceTo(hazard.position) <= hazard.userData.radius + 0.72;
+      if (!smash) continue;
       state.score += 420;
       state.rift = Math.min(100, state.rift + 5);
       state.shake = Math.max(state.shake, 0.35);
-      createShockwaveAt(hazard.position, palette.amber, hazard.userData.radius);
+      createShockwaveAt(hazard.position, palette.amber, hazard.userData.radius || 1.2);
       groups.obstacles.remove(hazard);
       disposeObject(hazard, materials);
       audio.play('pickup');
@@ -682,26 +863,44 @@ function updateCollisions() {
     return;
   }
 
-  // Near-miss scoring (normal mode, not invulnerable)
+  // Near-miss scoring (normal / practice, not invulnerable)
   if (!state.zen && state.invulnerable <= 0 && state.nearMissCooldown <= 0) {
     for (const hazard of groups.obstacles.children) {
       if (hazard.position.z < -2.5 || hazard.position.z > 2.5) continue;
-      const d = shipPosition.distanceTo(hazard.position);
-      if (isNearMiss(d, hazard.userData.radius, 0.58)) {
+      let skim = false;
+      if (hazard.userData.variant === 'gapwall') {
+        skim = isGapWallNearMiss(shipPosition, hazard, 0.58);
+      } else {
+        const d = shipPosition.distanceTo(hazard.position);
+        skim = isNearMiss(d, hazard.userData.radius, 0.58);
+      }
+      if (skim) {
         applyNearMiss(state);
         showCallout('Near miss +bonus');
         audio.play('nearmiss');
-        createShockwaveAt(hazard.position, palette.cyan, hazard.userData.radius * 0.5, 0.6);
+        createShockwaveAt(hazard.position, palette.cyan, (hazard.userData.radius || 1) * 0.5, 0.6);
         break;
       }
     }
   }
 
-  if (state.zen || state.invulnerable > 0) return;
+  if (state.zen || state.practice || state.invulnerable > 0) return;
 
   for (let i = groups.obstacles.children.length - 1; i >= 0; i -= 1) {
     const hazard = groups.obstacles.children[i];
-    if (shipPosition.distanceTo(hazard.position) > hazard.userData.radius + 0.58) continue;
+    let hit = false;
+    if (hazard.userData.variant === 'gapwall') {
+      if (hazard.position.z < -1.1 || hazard.position.z > 1.1) continue;
+      if (hazard.userData.scored) continue;
+      // Evaluate once when crossing the plane
+      if (hazard.position.z > -0.35) {
+        hazard.userData.scored = true;
+        hit = isGapWallHit(shipPosition, hazard, 0.58);
+      }
+    } else {
+      hit = shipPosition.distanceTo(hazard.position) <= hazard.userData.radius + 0.58;
+    }
+    if (!hit) continue;
     state.hull -= 24;
     state.combo = 1;
     state.streak = 0;
@@ -791,12 +990,24 @@ function updateHud() {
   comboEl.textContent = `x${state.combo.toFixed(1)}`;
   streakEl.textContent = String(state.streak);
   gatesEl.textContent = String(state.gates);
-  hullBar.style.transform = `scaleX(${THREE.MathUtils.clamp(state.hull, 0, 100) / 100})`;
+  const hullDisplay = state.practice || state.zen ? 100 : state.hull;
+  hullBar.style.transform = `scaleX(${THREE.MathUtils.clamp(hullDisplay, 0, 100) / 100})`;
   boostBar.style.transform = `scaleX(${state.boost / 100})`;
   riftBar.style.transform = `scaleX(${state.rift / 100})`;
-  hullBar.style.filter = state.hull <= 30 ? 'saturate(1.4) brightness(1.15)' : '';
+  hullBar.style.filter = !state.practice && state.hull <= 30 ? 'saturate(1.4) brightness(1.15)' : '';
   boostBar.style.filter = keys.boost ? 'brightness(1.35)' : '';
   riftBar.style.filter = state.overdrive > 0 ? 'brightness(1.8) saturate(1.5)' : '';
+
+  // Combo / heat meter polish
+  const heat = state.combo;
+  if (comboStat) {
+    comboStat.classList.toggle('combo-hot', heat >= 2.5);
+    comboStat.classList.toggle('combo-blaze', heat >= 4.5);
+    comboStat.classList.toggle('combo-overdrive', state.overdrive > 0);
+  }
+  comboEl.classList.toggle('is-pulse', heat >= 3);
+  game.classList.toggle('is-heat', heat >= 3.5);
+  game.classList.toggle('is-blaze', heat >= 5.5);
 }
 
 function animate() {
@@ -842,12 +1053,17 @@ async function shareScore() {
 window.addEventListener('keydown', (event) =>
   handleKeyEvent(keys, event, true, {
     onEscape: () => {
+      if (tutorialPanel?.classList.contains('is-visible')) {
+        dismissTutorial();
+        return;
+      }
       if (settingsPanel?.classList.contains('is-visible')) {
         closeSettings();
         return;
       }
       if (state.mode === MODES.PLAYING) pauseGame();
       else if (state.mode === MODES.PAUSED) resumeGame();
+      else if (state.mode === MODES.GAMEOVER) returnToTitle();
     },
   }),
 );
@@ -867,17 +1083,28 @@ bindAllHoldButtons(document, keys);
 startButton?.addEventListener('click', () => startGame({ zen: false, daily: false }));
 zenButton?.addEventListener('click', () => startGame({ zen: true, daily: false }));
 dailyButton?.addEventListener('click', () => startGame({ zen: false, daily: true }));
+practiceButton?.addEventListener('click', () => startGame({ practice: true }));
 resumeButton?.addEventListener('click', resumeGame);
 restartButton?.addEventListener('click', () =>
-  startGame({ zen: state.zen, daily: state.daily }),
+  startGame({ zen: state.zen, daily: state.daily, practice: state.practice }),
 );
 restartFromPause?.addEventListener('click', () =>
-  startGame({ zen: state.zen, daily: state.daily }),
+  startGame({ zen: state.zen, daily: state.daily, practice: state.practice }),
 );
+titleFromPause?.addEventListener('click', returnToTitle);
+titleFromOver?.addEventListener('click', returnToTitle);
 shareButton?.addEventListener('click', shareScore);
 pauseButton?.addEventListener('click', () => {
-  if (state.mode === MODES.PLAYING) pauseGame();
-  else if (state.mode === MODES.PAUSED) resumeGame();
+  if (state.mode === MODES.PLAYING) {
+    if (state.practice) {
+      // Pause button in practice opens pause panel so user can still resume/restart
+      state.mode = MODES.PAUSED;
+      setOverlay(pausePanel, true);
+      audio.play('tap');
+    } else {
+      pauseGame();
+    }
+  } else if (state.mode === MODES.PAUSED) resumeGame();
 });
 soundButton?.addEventListener('click', () => {
   state.muted = !state.muted;
@@ -885,10 +1112,17 @@ soundButton?.addEventListener('click', () => {
   persistSettings();
   refreshSoundIcon();
   audio.resume();
+  audio.syncMusic();
   audio.play('tap');
 });
 settingsButton?.addEventListener('click', openSettings);
 closeSettingsButton?.addEventListener('click', closeSettings);
+dismissTutorialButton?.addEventListener('click', dismissTutorial);
+resetTutorialButton?.addEventListener('click', () => {
+  resetTutorial();
+  closeSettings();
+  openTutorial();
+});
 
 bloomToggle?.addEventListener('change', () => {
   settings.bloom = bloomToggle.checked;
@@ -903,6 +1137,20 @@ reducedMotionToggle?.addEventListener('change', () => {
 sfxVolumeSlider?.addEventListener('input', () => {
   settings.sfxVolume = Number(sfxVolumeSlider.value) / 100;
   persistSettings();
+});
+musicVolumeSlider?.addEventListener('input', () => {
+  settings.musicVolume = Number(musicVolumeSlider.value) / 100;
+  persistSettings();
+});
+musicToggle?.addEventListener('change', () => {
+  settings.music = musicToggle.checked;
+  persistSettings();
+  if (settings.music) {
+    audio.resume();
+    audio.startMusic();
+  } else {
+    audio.syncMusic();
+  }
 });
 muteToggle?.addEventListener('change', () => {
   state.muted = muteToggle.checked;
@@ -924,4 +1172,7 @@ syncSettingsUI();
 refreshSplashMeta();
 setOverlay(splash, true);
 updateHud();
+if (!hasSeenTutorial()) {
+  openTutorial();
+}
 animate();

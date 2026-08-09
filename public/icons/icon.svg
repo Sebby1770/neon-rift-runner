@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Neon Rift Runner">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a1018"/>
+      <stop offset="100%" stop-color="#050609"/>
+    </linearGradient>
+    <linearGradient id="neon" x1="0%" y1="50%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#29f6c9"/>
+      <stop offset="50%" stop-color="#fff068"/>
+      <stop offset="100%" stop-color="#ff3f65"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="8" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="168" fill="none" stroke="url(#neon)" stroke-width="18" opacity="0.35"/>
+  <g filter="url(#glow)" transform="translate(256 256)">
+    <!-- craft silhouette -->
+    <path d="M-110 0 L40 -48 L110 0 L40 48 Z" fill="#f8fbff" opacity="0.95"/>
+    <path d="M-40 -8 L20 -28 L20 28 L-40 8 Z" fill="#29f6c9" opacity="0.85"/>
+    <ellipse cx="-90" cy="-18" rx="28" ry="10" fill="#29f6c9" opacity="0.7"/>
+    <ellipse cx="-90" cy="18" rx="28" ry="10" fill="#29f6c9" opacity="0.7"/>
+  </g>
+  <circle cx="256" cy="256" r="210" fill="none" stroke="#29f6c9" stroke-width="3" opacity="0.25"/>
+</svg>

@@ -7,6 +7,7 @@ import {
   createGameState,
   formatScore,
   formatTime,
+  getRunExtras,
   getRunSummary,
   leaderboardMode,
   MODES,
@@ -55,6 +56,15 @@ describe('resetRunState', () => {
     resetRunState(s, { daily: true, dailyKey: '2026-04-01' });
     expect(s.daily).toBe(true);
     expect(s.dailyKey).toBe('2026-04-01');
+  });
+
+  it('resets for practice with infinite hull', () => {
+    const s = createGameState();
+    resetRunState(s, { practice: true });
+    expect(s.practice).toBe(true);
+    expect(s.hull).toBe(999);
+    expect(s.invulnerable).toBeGreaterThan(100);
+    expect(s.speed).toBe(23);
   });
 });
 
@@ -121,6 +131,15 @@ describe('near miss', () => {
     expect(pts).toBe(280);
     expect(s.score).toBe(280);
     expect(s.nearMissCooldown).toBeGreaterThan(0);
+    expect(s.nearMisses).toBe(1);
+  });
+
+  it('counts multiple near misses', () => {
+    const s = createGameState();
+    resetRunState(s);
+    applyNearMiss(s);
+    applyNearMiss(s);
+    expect(s.nearMisses).toBe(2);
   });
 });
 
@@ -162,5 +181,13 @@ describe('run summary / leaderboard mode', () => {
     expect(leaderboardMode({ daily: true, zen: false })).toBe('daily');
     expect(leaderboardMode({ daily: false, zen: true })).toBe('zen');
     expect(leaderboardMode({ daily: false, zen: false })).toBe('normal');
+    expect(leaderboardMode({ practice: true, daily: false, zen: false })).toBe(null);
+  });
+
+  it('exposes run extras for achievements', () => {
+    const s = createGameState();
+    resetRunState(s);
+    s.nearMisses = 4;
+    expect(getRunExtras(s).nearMisses).toBe(4);
   });
 });

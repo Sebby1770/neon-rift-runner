@@ -94,6 +94,31 @@ canvas {
   font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
+  gap: 8px;
+}
+
+.mode-badge {
+  margin-left: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  background: rgba(56, 248, 206, 0.18);
+  border: 1px solid rgba(56, 248, 206, 0.45);
+  color: #38f8ce;
+}
+
+.mode-badge[data-mode="daily"] {
+  background: rgba(191, 114, 255, 0.18);
+  border-color: rgba(191, 114, 255, 0.45);
+  color: #d4a8ff;
+}
+
+.mode-badge[data-mode="practice"] {
+  background: rgba(255, 240, 104, 0.14);
+  border-color: rgba(255, 240, 104, 0.4);
+  color: #fff068;
 }
 
 .brand-mark {
@@ -348,6 +373,70 @@ h2 {
   box-shadow: 0 0 28px rgba(191, 114, 255, 0.18);
 }
 
+.practice-btn {
+  border-color: rgba(255, 240, 104, 0.4);
+  background: linear-gradient(135deg, rgba(255, 240, 104, 0.16), rgba(56, 248, 206, 0.1));
+}
+
+.best-chip.achievements-chip strong {
+  color: #fff068;
+}
+
+/* Combo / heat meter polish */
+.stat-combo strong {
+  transition: color 160ms ease, text-shadow 160ms ease, transform 160ms ease;
+}
+
+.stat-combo.combo-hot strong {
+  color: #38f8ce;
+  text-shadow: 0 0 14px rgba(56, 248, 206, 0.55);
+}
+
+.stat-combo.combo-blaze strong {
+  color: #fff068;
+  text-shadow:
+    0 0 16px rgba(255, 240, 104, 0.7),
+    0 0 28px rgba(255, 67, 91, 0.35);
+}
+
+.stat-combo.combo-overdrive strong {
+  color: #ffb13d;
+  text-shadow: 0 0 18px rgba(255, 177, 61, 0.75);
+}
+
+#combo.is-pulse {
+  animation: comboPulse 520ms ease-in-out infinite alternate;
+}
+
+#game.is-heat .stats {
+  box-shadow:
+    0 16px 42px rgba(0, 0, 0, 0.26),
+    0 0 28px rgba(56, 248, 206, 0.18);
+}
+
+#game.is-blaze .stats {
+  box-shadow:
+    0 16px 42px rgba(0, 0, 0, 0.26),
+    0 0 36px rgba(255, 240, 104, 0.28);
+}
+
+#game.is-heat .meter-row {
+  box-shadow:
+    0 16px 42px rgba(0, 0, 0, 0.26),
+    0 0 22px rgba(56, 248, 206, 0.12);
+}
+
+@keyframes comboPulse {
+  from {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  to {
+    transform: scale(1.08);
+    filter: brightness(1.2);
+  }
+}
+
 /* Leaderboard */
 .leaderboard-panel {
   width: min(420px, 100%);
@@ -522,6 +611,209 @@ h2 {
   width: 120px;
   accent-color: #fff068;
   cursor: pointer;
+}
+
+/* Achievements in settings */
+.achievements-section {
+  margin-top: 22px;
+  text-align: left;
+}
+
+.achievements-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.achievements-header h3 {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fff068;
+}
+
+.achievements-count {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: rgba(248, 251, 255, 0.55);
+}
+
+.achievements-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.achievements-list li {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.achievements-list li:last-child {
+  border-bottom: 0;
+}
+
+.achievements-list strong {
+  display: block;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.achievements-list span {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.72rem;
+  color: rgba(248, 251, 255, 0.5);
+  font-weight: 600;
+}
+
+.achievements-list .ach-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  box-shadow: none;
+}
+
+.achievements-list li.is-unlocked .ach-dot {
+  background: #38f8ce;
+  box-shadow: 0 0 10px rgba(56, 248, 206, 0.7);
+}
+
+.achievements-list li.is-unlocked strong {
+  color: #38f8ce;
+}
+
+.achievements-list li.is-locked {
+  opacity: 0.55;
+}
+
+.settings-actions {
+  margin-top: 18px;
+}
+
+.settings-card {
+  max-height: min(92vh, 900px);
+  overflow-y: auto;
+}
+
+/* Tutorial */
+.tutorial-overlay {
+  z-index: 7;
+}
+
+.tutorial-card {
+  width: min(440px, 100%);
+  padding: 28px 24px 22px;
+  border-radius: 12px;
+  backdrop-filter: blur(18px);
+  background: rgba(8, 11, 18, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.35);
+}
+
+.tutorial-list {
+  list-style: none;
+  margin: 22px 0 0;
+  padding: 0;
+  text-align: left;
+  display: grid;
+  gap: 12px;
+}
+
+.tutorial-list li {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tutorial-list svg {
+  width: 22px;
+  height: 22px;
+  color: #38f8ce;
+}
+
+.tutorial-list strong {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.tutorial-list span {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.78rem;
+  color: rgba(248, 251, 255, 0.65);
+  font-weight: 600;
+}
+
+/* Achievement toast */
+.achievement-toast {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  z-index: 8;
+  display: grid;
+  gap: 2px;
+  min-width: min(320px, calc(100% - 32px));
+  padding: 12px 18px;
+  border-radius: 10px;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -12px) scale(0.96);
+  transition: opacity 200ms ease, transform 200ms ease;
+  background: linear-gradient(135deg, rgba(8, 14, 22, 0.92), rgba(20, 12, 28, 0.92));
+  border: 1px solid rgba(255, 240, 104, 0.45);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.4),
+    0 0 28px rgba(255, 240, 104, 0.18);
+  backdrop-filter: blur(16px);
+}
+
+.achievement-toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+.achievement-toast .ach-label {
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff068;
+}
+
+.achievement-toast strong {
+  font-size: 1rem;
+  font-weight: 900;
+  color: #fff;
+}
+
+.achievement-toast .ach-desc {
+  font-size: 0.75rem;
+  color: rgba(248, 251, 255, 0.65);
+  font-weight: 600;
 }
 
 .quick-actions {
@@ -724,7 +1016,9 @@ h2 {
   .quick-actions button,
   .touch-controls button,
   .callout,
-  .new-best {
+  .new-best,
+  #combo.is-pulse,
+  .achievement-toast {
     transition: none;
     animation: none;
   }
@@ -735,7 +1029,9 @@ html.reduced-motion .quick-actions button,
 html.reduced-motion .touch-controls button,
 html.reduced-motion .callout,
 html.reduced-motion .new-best,
-html.reduced-motion #game.is-overdrive .brand-mark {
+html.reduced-motion #game.is-overdrive .brand-mark,
+html.reduced-motion #combo.is-pulse,
+html.reduced-motion .achievement-toast {
   transition: none !important;
   animation: none !important;
 }

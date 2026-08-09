@@ -103,8 +103,25 @@ export function createGate(materials, { runTime = 0, randomX } = {}) {
   return group;
 }
 
-export function createHazard(materials, { runTime = 0, randomX } = {}) {
-  const variant = random() > 0.62 ? 'slicer' : 'mine';
+/**
+ * Classic mine / slicer, or gap wall (horizontal barrier with a drifting opening).
+ * Pass `forceVariant` to pick a type: 'mine' | 'slicer' | 'gapwall'.
+ */
+export function createHazard(materials, { runTime = 0, randomX, forceVariant } = {}) {
+  let variant = forceVariant;
+  if (!variant) {
+    const roll = random();
+    // Late-game: more gap walls. Early: mostly mines/slicers.
+    const gapChance = Math.min(0.28, 0.08 + runTime * 0.003);
+    if (roll < gapChance) variant = 'gapwall';
+    else if (roll < gapChance + 0.38) variant = 'slicer';
+    else variant = 'mine';
+  }
+
+  if (variant === 'gapwall') {
+    return createGapWall(materials, { runTime, randomX });
+  }
+
   const group = new THREE.Group();
 
   if (variant === 'slicer') {
@@ -151,6 +168,135 @@ export function createHazard(materials, { runTime = 0, randomX } = {}) {
     swaySpeed: 1.8 * speedMul,
   };
   return group;
+}
+
+/**
+ * Horizontal barrier spanning the flight corridor with a gap the player flies through.
+ * Gap center drifts left/right over time (updated in main moveDynamicGroup).
+ */
+export function createGapWall(materials, { runTime = 0, randomX } = {}) {
+  const group = new THREE.Group();
+  const span = 14;
+  // Gap narrows slightly with difficulty
+  const gapWidth = Math.max(1.55, 2.45 - Math.min(0.7, runTime * 0.008));
+  const wallThickness = 0.14;
+  const wallDepth = 0.18;
+  const wallHeight = 0.55;
+
+  const wallMat = new THREE.MeshBasicMaterial({
+    color: palette.rose,
+    transparent: true,
+    opacity: 0.82,
+    blending: THREE.AdditiveBlending,
+  });
+  const edgeMat = new THREE.MeshBasicMaterial({
+    color: palette.amber,
+    transparent: true,
+    opacity: 0.55,
+    blending: THREE.AdditiveBlending,
+  });
+
+  // Two horizontal segments left/right of the gap — rebuilt as wide bars
+  // Positions relative to gap center at local x=0; gap drifts via userData.
+  const halfSpan = span / 2;
+  const leftWidth = halfSpan - gapWidth / 2;
+  const rightWidth = halfSpan - gapWidth / 2;
+
+  const left = new THREE.Mesh(
+    new THREE.BoxGeometry(Math.max(0.4, leftWidth), wallHeight, wallDepth),
+    wallMat,
+  );
+  left.position.x = -(gapWidth / 2 + leftWidth / 2);
+  left.name = 'gap-left';
+
+  const right = new THREE.Mesh(
+    new THREE.BoxGeometry(Math.max(0.4, rightWidth), wallHeight, wallDepth),
+    wallMat.clone(),
+  );
+  right.position.x = gapWidth / 2 + rightWidth / 2;
+  right.name = 'gap-right';
+
+  // Glow rim on gap edges
+  const leftRim = new THREE.Mesh(new THREE.BoxGeometry(0.08, wallHeight * 1.35, wallDepth * 1.4), edgeMat);
+  leftRim.position.x = -gapWidth / 2;
+  const rightRim = leftRim.clone();
+  rightRim.position.x = gapWidth / 2;
+
+  const light = new THREE.PointLight(palette.rose, 10, 14);
+  light.position.z = 0.3;
+
+  group.add(left, right, leftRim, rightRim, light);
+
+  // Vertical center of wall sits mid-corridor; player must match Y roughly
+  const y = randFloat(2.0, 4.8);
+  group.position.set(0, y, -132);
+
+  const speedMul = slicerSpeedFactor(runTime);
+  const initialGap =
+    typeof randomX === 'function' ? randomX(0.4) : randFloat(-3.2, 3.2);
+
+  group.userData = {
+    type: 'hazard',
+    variant: 'gapwall',
+    gapWidth,
+    gapX: initialGap,
+    baseGapX: initialGap,
+    // Vertical hit band half-height
+    halfHeight: wallHeight * 0.55 + 0.35,
+    // Approximate "radius" for near-miss / overdrive smash
+    radius: gapWidth * 0.55,
+    spin: 0,
+    phase: randFloat(0, Math.PI * 2),
+    sway: randFloat(1.4, 2.6) * speedMul,
+    swaySpeed: 1.15 * speedMul,
+    scored: false,
+  };
+  // Shift segment positions so gap is at gapX (group stays at x=0)
+  group.position.x = 0;
+  offsetGapWall(group, initialGap);
+  return group;
+}
+
+/** Reposition left/right segments so the opening is centered at gapX. */
+export function offsetGapWall(group, gapX) {
+  const ud = group.userData;
+  if (!ud || ud.variant !== 'gapwall') return;
+  ud.gapX = gapX;
+  group.children.forEach((child) => {
+    if (child.name === 'gap-left') {
+      // leave geometry local; whole group offset not used — shift children
+    }
+  });
+  // Move the whole wall assembly in X so gap center tracks gapX
+  group.position.x = gapX;
+}
+
+/**
+ * Pure collision test for a gap wall: true if ship is outside the opening
+ * (within vertical band and near the wall plane).
+ */
+export function isGapWallHit(shipPos, hazard, shipRadius = 0.58) {
+  const ud = hazard.userData;
+  if (!ud || ud.variant !== 'gapwall') return false;
+  const dy = Math.abs(shipPos.y - hazard.position.y);
+  if (dy > (ud.halfHeight || 0.8)) return false;
+  // Outside the gap opening?
+  const halfGap = (ud.gapWidth || 2) / 2 - shipRadius * 0.35;
+  const dx = Math.abs(shipPos.x - (ud.gapX ?? hazard.position.x));
+  return dx > halfGap;
+}
+
+/** Near-miss for gap wall: inside the opening, close to either edge. */
+export function isGapWallNearMiss(shipPos, hazard, shipRadius = 0.58) {
+  const ud = hazard.userData;
+  if (!ud || ud.variant !== 'gapwall') return false;
+  const dy = Math.abs(shipPos.y - hazard.position.y);
+  if (dy > (ud.halfHeight || 0.8) + 0.25) return false;
+  const halfGap = (ud.gapWidth || 2) / 2;
+  const dx = Math.abs(shipPos.x - (ud.gapX ?? hazard.position.x));
+  const clearance = halfGap - dx;
+  // Must be inside the opening with little room to the wall edge
+  return clearance > shipRadius * 0.15 && clearance < 0.95;
 }
 
 export function createPickup(materials, kind = 'boost', { randomX } = {}) {

@@ -3,6 +3,8 @@ import {
   baseTargetSpeed,
   clamp,
   doubleHazardChance,
+  gapWallChance,
+  gapWallWidth,
   gateRadiusScale,
   gateSpawnChance,
   gateSpawnInterval,
@@ -11,6 +13,7 @@ import {
   pickupIntervalRange,
   slicerSpeedFactor,
 } from '../difficulty.js';
+import { isGapWallHit, isGapWallNearMiss } from '../entities.js';
 
 describe('clamp', () => {
   it('clamps values', () => {
@@ -93,5 +96,46 @@ describe('isNearMiss', () => {
     expect(isNearMiss(hit - 0.01, radius, ship)).toBe(false);
     expect(isNearMiss(hit + 0.2, radius, ship)).toBe(true);
     expect(isNearMiss(hit + 2, radius, ship)).toBe(false);
+  });
+});
+
+describe('gap wall difficulty', () => {
+  it('increases spawn chance and narrows width over time', () => {
+    expect(gapWallChance(100)).toBeGreaterThan(gapWallChance(0));
+    expect(gapWallWidth(100)).toBeLessThan(gapWallWidth(0));
+    expect(gapWallWidth(0)).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('gap wall collision', () => {
+  function mockWall(gapX = 0, gapWidth = 2.2, y = 3) {
+    return {
+      position: { x: gapX, y, z: 0 },
+      userData: {
+        variant: 'gapwall',
+        gapX,
+        gapWidth,
+        halfHeight: 0.9,
+      },
+    };
+  }
+
+  it('hits when outside the gap', () => {
+    const wall = mockWall(0, 2.2, 3);
+    expect(isGapWallHit({ x: 0, y: 3, z: 0 }, wall)).toBe(false);
+    expect(isGapWallHit({ x: 3, y: 3, z: 0 }, wall)).toBe(true);
+  });
+
+  it('misses when above/below the wall band', () => {
+    const wall = mockWall(0, 2.2, 3);
+    expect(isGapWallHit({ x: 3, y: 6, z: 0 }, wall)).toBe(false);
+  });
+
+  it('near-miss near gap edge inside opening', () => {
+    const wall = mockWall(0, 2.2, 3);
+    // halfGap ~1.1; clearance at x=0.7 is 0.4 → skim; center is safe
+    expect(isGapWallNearMiss({ x: 0.7, y: 3, z: 0 }, wall)).toBe(true);
+    expect(isGapWallNearMiss({ x: 0, y: 3, z: 0 }, wall)).toBe(false);
+    expect(isGapWallNearMiss({ x: 3, y: 3, z: 0 }, wall)).toBe(false);
   });
 });
