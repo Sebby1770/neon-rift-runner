@@ -195,3 +195,24 @@ describe('settings music defaults', () => {
     expect(s.musicVolume).toBeGreaterThan(0);
   });
 });
+
+describe('difficulty settings + boards', () => {
+  it('defaults difficulty to normal and persists', () => {
+    const store = memoryStorage();
+    expect(loadSettings(store).difficulty).toBe('normal');
+    saveSettings({ difficulty: 'hard', showFps: true }, store);
+    const s = loadSettings(store);
+    expect(s.difficulty).toBe('hard');
+    expect(s.showFps).toBe(true);
+  });
+
+  it('keeps separate normal boards per difficulty', () => {
+    const store = memoryStorage();
+    submitScore('normal', { score: 100 }, { storage: store });
+    submitScore('normal:easy', { score: 500 }, { storage: store });
+    submitScore('normal:hard', { score: 50 }, { storage: store });
+    expect(getBestScore('normal', { storage: store })).toBe(100);
+    expect(getBestScore('normal:easy', { storage: store })).toBe(500);
+    expect(getBestScore('normal:hard', { storage: store })).toBe(50);
+  });
+});

@@ -1,15 +1,18 @@
 /**
- * localStorage persistence for high scores, settings, achievements, and flags.
+ * localStorage persistence for high scores, settings, achievements, ghost, flags.
  * Pure enough to unit-test with a mock storage adapter.
  */
 
 export const STORAGE_KEYS = {
   settings: 'neon-rift:settings',
   normal: 'neon-rift:scores:normal',
+  normalEasy: 'neon-rift:scores:normal:easy',
+  normalHard: 'neon-rift:scores:normal:hard',
   zen: 'neon-rift:scores:zen',
   daily: 'neon-rift:scores:daily',
   achievements: 'neon-rift:achievements',
   tutorial: 'neon-rift:tutorial',
+  ghost: 'neon-rift:ghost',
 };
 
 const DEFAULT_SETTINGS = {
@@ -19,6 +22,8 @@ const DEFAULT_SETTINGS = {
   sfxVolume: 0.8,
   bloom: true,
   reducedMotion: false,
+  difficulty: 'normal',
+  showFps: false,
 };
 
 const MAX_LEADERBOARD = 10;
@@ -46,7 +51,11 @@ export function loadSettings(storage = defaultStorage()) {
     const raw = storage.getItem(STORAGE_KEYS.settings);
     if (!raw) return base;
     const parsed = JSON.parse(raw);
-    return { ...base, ...parsed };
+    const merged = { ...base, ...parsed };
+    if (!['easy', 'normal', 'hard'].includes(merged.difficulty)) {
+      merged.difficulty = 'normal';
+    }
+    return merged;
   } catch {
     return base;
   }
@@ -56,6 +65,9 @@ export function saveSettings(settings, storage = defaultStorage()) {
   if (!storage) return settings;
   try {
     const merged = { ...DEFAULT_SETTINGS, ...settings };
+    if (!['easy', 'normal', 'hard'].includes(merged.difficulty)) {
+      merged.difficulty = 'normal';
+    }
     storage.setItem(STORAGE_KEYS.settings, JSON.stringify(merged));
     return merged;
   } catch {
@@ -66,12 +78,14 @@ export function saveSettings(settings, storage = defaultStorage()) {
 function scoresKey(mode) {
   if (mode === 'zen') return STORAGE_KEYS.zen;
   if (mode === 'daily') return STORAGE_KEYS.daily;
+  if (mode === 'normal:easy') return STORAGE_KEYS.normalEasy;
+  if (mode === 'normal:hard') return STORAGE_KEYS.normalHard;
   return STORAGE_KEYS.normal;
 }
 
 /**
  * Load top scores for a mode. Daily board is scoped to today's date key.
- * Entries: { score, gates, maxStreak, runTime, at, dailyKey? }
+ * Entries: { score, gates, maxStreak, runTime, at, dailyKey?, difficulty? }
  */
 export function loadLeaderboard(mode = 'normal', { todayKey, storage = defaultStorage() } = {}) {
   if (!storage) return [];
@@ -109,9 +123,13 @@ export function submitScore(mode, entry, { storage = defaultStorage(), todayKey 
     runTime: entry.runTime || 0,
     at: entry.at || new Date().toISOString(),
   };
+  if (entry.difficulty) record.difficulty = entry.difficulty;
   if (mode === 'daily') {
     record.dailyKey = entry.dailyKey || todayKey || getTodayKey();
   }
+  if (mode === 'normal:easy') record.difficulty = 'easy';
+  if (mode === 'normal:hard') record.difficulty = 'hard';
+  if (mode === 'normal' && !record.difficulty) record.difficulty = 'normal';
 
   let board = [];
   if (storage) {
@@ -168,15 +186,25 @@ export function submitScore(mode, entry, { storage = defaultStorage(), todayKey 
   return { board, rank, isNewBest, entry: record };
 }
 
-export function buildShareText(summary, { mode = 'normal', dailyKey } = {}) {
-  const label =
-    mode === 'daily'
+export function buildShareText(summary, { mode = 'normal', dailyKey, difficulty } = {}) {
+  const diff = difficulty || summary.difficulty || 'normal';
+  const diffLabel =
+    diff === 'easy' ? 'Easy' : diff === 'hard' ? 'Hard' : diff === 'normal' ? 'Normal' : '';
+  let label =
+    mode === 'daily' || mode?.startsWith?.('daily')
       ? `Daily Challenge (${dailyKey || summary.dailyKey || getTodayKey()})`
       : mode === 'zen'
         ? 'Zen Run'
         : mode === 'practice'
           ? 'Practice'
           : 'Normal Run';
+  if ((mode === 'normal' || mode?.startsWith?.('normal')) && diffLabel && mode !== 'zen') {
+    label = `${label} · ${diffLabel}`;
+  }
+  // Also handle mode keys normal:easy / normal:hard
+  if (mode === 'normal:easy') label = 'Normal Run · Easy';
+  if (mode === 'normal:hard') label = 'Normal Run · Hard';
+
   const time =
     typeof summary.runTime === 'number'
       ? `${Math.floor(summary.runTime / 60)}:${String(Math.floor(summary.runTime) % 60).padStart(2, '0')}`
@@ -187,6 +215,70 @@ export function buildShareText(summary, { mode = 'normal', dailyKey } = {}) {
     `Gates: ${summary.gates} · Max streak: ${summary.maxStreak} · Time: ${time}`,
     'Thread the gates. Steal charge. Outrun the collapsing skyline.',
   ].join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Ghost path (per mode key)
+// ---------------------------------------------------------------------------
+
+/**
+ * Ghost storage key suffix from leaderboard-style mode.
+ * Modes: normal, normal:easy, normal:hard, zen, daily
+ */
+export function ghostModeKey(mode = 'normal') {
+  if (mode === 'zen') return 'zen';
+  if (mode === 'daily') return 'daily';
+  if (mode === 'normal:easy') return 'normal:easy';
+  if (mode === 'normal:hard') return 'normal:hard';
+  return 'normal';
+}
+
+/**
+ * Load all ghost paths as a map { modeKey: samples[] }.
+ */
+export function loadGhostMap(storage = defaultStorage()) {
+  if (!storage) return {};
+  try {
+    const raw = storage.getItem(STORAGE_KEYS.ghost);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Load ghost samples for a mode key. Returns array (possibly empty).
+ */
+export function loadGhost(mode = 'normal', storage = defaultStorage()) {
+  const map = loadGhostMap(storage);
+  const key = ghostModeKey(mode);
+  const entry = map[key];
+  if (!entry) return [];
+  if (Array.isArray(entry)) return entry;
+  if (Array.isArray(entry.samples)) return entry.samples;
+  return [];
+}
+
+/**
+ * Save ghost samples for a mode. Caps length at 1200.
+ * Returns saved samples array.
+ */
+export function saveGhost(mode, samples, storage = defaultStorage()) {
+  const key = ghostModeKey(mode);
+  const list = Array.isArray(samples) ? samples.slice(0, 1200) : [];
+  const map = loadGhostMap(storage);
+  map[key] = list;
+  if (storage) {
+    try {
+      storage.setItem(STORAGE_KEYS.ghost, JSON.stringify(map));
+    } catch {
+      // quota
+    }
+  }
+  return list;
 }
 
 // ---------------------------------------------------------------------------

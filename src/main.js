@@ -12,9 +12,11 @@ import {
   doubleHazardChance,
   gateSpawnChance,
   gateSpawnInterval,
+  hazardDamage,
   hazardSpawnInterval,
   isNearMiss,
   pickupIntervalRange,
+  resolveDifficulty,
 } from './game/difficulty.js';
 import {
   clearGroup,
@@ -28,7 +30,21 @@ import {
   isGapWallHit,
   isGapWallNearMiss,
 } from './game/entities.js';
-import { bindAllHoldButtons, createKeys, handleKeyEvent } from './game/input.js';
+import {
+  createGhostRecorder,
+  deserializeGhost,
+  sampleAtTime,
+  serializeGhost,
+  tickGhostRecorder,
+} from './game/ghost.js';
+import {
+  bindAllHoldButtons,
+  createKeys,
+  gamepadStartEdge,
+  handleKeyEvent,
+  mergeInput,
+  pollGamepadSnapshot,
+} from './game/input.js';
 import { createMaterials, palette } from './game/materials.js';
 import {
   createDailyRng,
@@ -38,6 +54,7 @@ import {
   resetRandomSource,
   setRandomSource,
 } from './game/rng.js';
+import { downloadCanvasPng, drawShareCard } from './game/shareCard.js';
 import {
   applyGateClear,
   applyGateMiss,
@@ -53,15 +70,24 @@ import {
   resetRunState,
 } from './game/state.js';
 import {
+  maybeStartStorm,
+  stormDoubleHazardBonus,
+  stormHazardIntervalMul,
+  stormScoreMultiplier,
+  tickStorm,
+} from './game/storm.js';
+import {
   buildShareText,
   getBestScore,
   getTodayKey,
   hasSeenTutorial,
   loadAchievements,
+  loadGhost,
   loadLeaderboard,
   loadSettings,
   markTutorialSeen,
   resetTutorial,
+  saveGhost,
   saveSettings,
   submitScore,
   unlockAchievements,
@@ -116,6 +142,7 @@ const restartFromPause = document.querySelector('#restartFromPause');
 const titleFromPause = document.querySelector('#titleFromPause');
 const titleFromOver = document.querySelector('#titleFromOver');
 const shareButton = document.querySelector('#shareButton');
+const shareCardButton = document.querySelector('#shareCardButton');
 const closeSettingsButton = document.querySelector('#closeSettings');
 const resetTutorialButton = document.querySelector('#resetTutorial');
 const dismissTutorialButton = document.querySelector('#dismissTutorial');
@@ -135,22 +162,39 @@ const sfxVolumeSlider = document.querySelector('#sfxVolume');
 const musicVolumeSlider = document.querySelector('#musicVolume');
 const musicToggle = document.querySelector('#musicToggle');
 const muteToggle = document.querySelector('#muteToggle');
+const fpsToggle = document.querySelector('#fpsToggle');
+const difficultySelect = document.querySelector('#difficultySelect');
+const difficultyChips = document.querySelectorAll('[data-difficulty]');
 const modeBadge = document.querySelector('#modeBadge');
 const comboStat = document.querySelector('.stat-combo');
+const fpsMeterEl = document.querySelector('#fpsMeter');
+const screenFlashEl = document.querySelector('#screenFlash');
 
 // ---------------------------------------------------------------------------
 // Settings + state
 // ---------------------------------------------------------------------------
 let settings = loadSettings();
-const state = createGameState({ muted: settings.muted });
+const state = createGameState({
+  muted: settings.muted,
+  difficulty: settings.difficulty || 'normal',
+});
 const keys = createKeys();
 const bounds = { x: 5.3, yMin: 1.1, yMax: 5.8 };
 let lastRunSummary = null;
+let lastRunIsNewBest = false;
 let activeBoardMode = 'normal';
 let bloomEnabled = settings.bloom !== false;
 let unlockedAchievements = new Set(loadAchievements());
 let achievementToastTimer = 0;
 let pendingAchievementToasts = [];
+let ghostRecorder = createGhostRecorder();
+let activeGhostSamples = [];
+let ghostShip = null;
+let prevGamepadStart = false;
+let fpsFrames = 0;
+let fpsTimer = 0;
+let fpsValue = 0;
+let input = createKeys();
 
 const audio = createAudio({
   getMuted: () => state.muted || settings.muted,
@@ -204,6 +248,27 @@ scene.add(ship);
 
 const shield = createShield();
 ship.add(shield);
+
+// Translucent ghost of best-path (hidden until samples load)
+ghostShip = createShip(materials);
+ghostShip.visible = false;
+ghostShip.traverse((child) => {
+  if (child.isMesh && child.material) {
+    child.material = child.material.clone();
+    if ('opacity' in child.material) {
+      child.material.transparent = true;
+      child.material.opacity = 0.28;
+      child.material.depthWrite = false;
+    }
+    if ('emissiveIntensity' in child.material) {
+      child.material.emissiveIntensity = (child.material.emissiveIntensity || 0.3) * 0.45;
+    }
+  }
+  if (child.isPointLight) {
+    child.intensity = 0;
+  }
+});
+scene.add(ghostShip);
 
 const starField = createStarField();
 scene.add(starField);
@@ -263,6 +328,41 @@ function showCallout(message) {
   state.calloutTimer = 1.45;
 }
 
+function triggerScreenFlash(seconds = 0.28) {
+  state.flashTimer = Math.max(state.flashTimer || 0, seconds);
+  if (screenFlashEl) {
+    screenFlashEl.classList.add('is-active');
+  }
+  game.classList.add('is-flash');
+}
+
+function currentDifficulty() {
+  return state.difficulty || settings.difficulty || 'normal';
+}
+
+function normalBoardModeForDifficulty(diff = 'normal') {
+  if (diff === 'easy') return 'normal:easy';
+  if (diff === 'hard') return 'normal:hard';
+  return 'normal';
+}
+
+function setDifficulty(id) {
+  const preset = resolveDifficulty(id);
+  settings.difficulty = preset.id;
+  state.difficulty = preset.id;
+  persistSettings();
+  syncDifficultyUI();
+  refreshSplashMeta();
+}
+
+function syncDifficultyUI() {
+  const id = settings.difficulty || 'normal';
+  difficultyChips.forEach((chip) => {
+    chip.classList.toggle('is-active', chip.dataset.difficulty === id);
+  });
+  if (difficultySelect) difficultySelect.value = id;
+}
+
 function queueAchievementToast(achievement) {
   pendingAchievementToasts.push(achievement);
   if (achievementToastTimer <= 0) flushAchievementToast();
@@ -295,6 +395,9 @@ function syncSettingsUI() {
   }
   if (musicToggle) musicToggle.checked = settings.music !== false;
   if (muteToggle) muteToggle.checked = !!(state.muted || settings.muted);
+  if (fpsToggle) fpsToggle.checked = !!settings.showFps;
+  syncDifficultyUI();
+  updateFpsMeterVisibility();
   renderAchievementsList();
 }
 
@@ -302,8 +405,16 @@ function persistSettings() {
   settings = saveSettings({
     ...settings,
     muted: state.muted,
+    difficulty: settings.difficulty || 'normal',
+    showFps: !!settings.showFps,
   });
   audio.syncMusic();
+}
+
+function updateFpsMeterVisibility() {
+  if (!fpsMeterEl) return;
+  fpsMeterEl.hidden = !settings.showFps;
+  if (!settings.showFps) fpsMeterEl.textContent = '';
 }
 
 function renderAchievementsList() {
@@ -329,16 +440,24 @@ function processAchievements(summary, extras) {
 }
 
 function refreshSplashMeta() {
-  const best = getBestScore('normal');
+  const boardMode = normalBoardModeForDifficulty(settings.difficulty || 'normal');
+  const best = getBestScore(boardMode);
   const dailyBest = getBestScore('daily', { todayKey: getTodayKey() });
   if (splashBestEl) {
+    const label = resolveDifficulty(settings.difficulty).label;
     splashBestEl.textContent = best > 0 ? formatScore(best) : '—';
+    splashBestEl.title = `Best (${label})`;
   }
   if (splashDailyBestEl) {
     splashDailyBestEl.textContent = dailyBest > 0 ? formatScore(dailyBest) : '—';
   }
   renderAchievementsList();
-  renderLeaderboard(activeBoardMode);
+  // Keep leaderboard tab on normal family when difficulty changes
+  if (activeBoardMode === 'normal' || activeBoardMode?.startsWith?.('normal')) {
+    renderLeaderboard(boardMode);
+  } else {
+    renderLeaderboard(activeBoardMode);
+  }
 }
 
 function updateModeBadge() {
@@ -360,21 +479,37 @@ function updateModeBadge() {
     modeBadge.textContent = 'Zen';
     modeBadge.dataset.mode = 'zen';
   } else {
-    modeBadge.hidden = true;
+    const diff = resolveDifficulty(currentDifficulty());
+    modeBadge.hidden = false;
+    modeBadge.textContent = diff.label;
+    modeBadge.dataset.mode = diff.id === 'normal' ? 'normal' : diff.id;
   }
 }
 
 function renderLeaderboard(mode = 'normal') {
+  // Map splash "normal" tab to difficulty-specific board
+  let boardMode = mode;
+  if (mode === 'normal') {
+    boardMode = normalBoardModeForDifficulty(settings.difficulty || 'normal');
+  }
   activeBoardMode = mode;
   leaderboardTabs.forEach((tab) => {
-    tab.classList.toggle('is-active', tab.dataset.board === mode);
+    const tabMode = tab.dataset.board;
+    tab.classList.toggle(
+      'is-active',
+      tabMode === mode || (mode?.startsWith?.('normal') && tabMode === 'normal'),
+    );
   });
   if (!leaderboardList) return;
-  const board = loadLeaderboard(mode, {
-    todayKey: mode === 'daily' ? getTodayKey() : undefined,
+  const board = loadLeaderboard(boardMode, {
+    todayKey: boardMode === 'daily' ? getTodayKey() : undefined,
   });
   if (!board.length) {
-    leaderboardList.innerHTML = '<li class="empty">No scores yet — launch a run.</li>';
+    const diffHint =
+      mode === 'normal'
+        ? ` (${resolveDifficulty(settings.difficulty).label})`
+        : '';
+    leaderboardList.innerHTML = `<li class="empty">No scores yet${diffHint} — launch a run.</li>`;
     return;
   }
   leaderboardList.innerHTML = board
@@ -383,6 +518,36 @@ function renderLeaderboard(mode = 'normal') {
         `<li><span class="rank">#${i + 1}</span><span class="pts">${formatScore(entry.score)}</span><span class="meta">${entry.gates}g · ${formatTime(entry.runTime)}</span></li>`,
     )
     .join('');
+}
+
+function loadGhostForRun({ zen, daily, practice, difficulty }) {
+  if (practice) {
+    activeGhostSamples = [];
+    return;
+  }
+  let mode = 'normal';
+  if (daily) mode = 'daily';
+  else if (zen) mode = 'zen';
+  else mode = normalBoardModeForDifficulty(difficulty || 'normal');
+  activeGhostSamples = deserializeGhost(loadGhost(mode));
+}
+
+function updateGhostShip() {
+  if (!ghostShip) return;
+  if (!activeGhostSamples.length || state.mode !== MODES.PLAYING) {
+    ghostShip.visible = false;
+    return;
+  }
+  const pos = sampleAtTime(activeGhostSamples, state.runTime);
+  if (!pos) {
+    ghostShip.visible = false;
+    return;
+  }
+  ghostShip.visible = true;
+  ghostShip.position.x = pos.x;
+  ghostShip.position.y = pos.y;
+  ghostShip.position.z = ship.position.z - 0.15;
+  ghostShip.rotation.z = Math.sin(state.runTime * 2.2) * 0.05;
 }
 
 // ---------------------------------------------------------------------------
@@ -396,22 +561,35 @@ function startGame({ zen = false, daily = false, practice = false } = {}) {
     setRandomSource(createDailyRng(dailyKey));
   }
 
-  resetRunState(state, { zen, daily, practice, dailyKey });
+  const difficulty = settings.difficulty || 'normal';
+  resetRunState(state, { zen, daily, practice, dailyKey, difficulty });
   ship.position.set(0, 2.6, 0);
   ship.rotation.set(0, 0, 0);
-  game.classList.remove('is-overdrive');
+  if (ghostShip) {
+    ghostShip.position.set(0, 2.6, -0.15);
+    ghostShip.visible = false;
+  }
+  game.classList.remove('is-overdrive', 'is-storm', 'is-flash');
   game.classList.toggle('is-practice', !!practice);
   callout.classList.remove('is-visible');
   callout.textContent = '';
   if (newBestEl) newBestEl.classList.remove('is-visible');
+  if (screenFlashEl) screenFlashEl.classList.remove('is-active');
 
   clearGroup(groups.obstacles, materials);
   clearGroup(groups.gates, materials);
   clearGroup(groups.pickups, materials);
   clearGroup(groups.effects, materials);
 
+  ghostRecorder = createGhostRecorder();
+  loadGhostForRun({ zen, daily, practice, difficulty });
+
   for (let i = 0; i < 3; i += 1) {
-    const gate = createGate(materials, { runTime: 0, randomX: randomFlightX });
+    const gate = createGate(materials, {
+      runTime: 0,
+      randomX: randomFlightX,
+      difficulty,
+    });
     gate.position.z = -55 - i * 33;
     groups.gates.add(gate);
   }
@@ -431,7 +609,8 @@ function startGame({ zen = false, daily = false, practice = false } = {}) {
 function returnToTitle() {
   state.mode = MODES.TITLE;
   state.practice = false;
-  game.classList.remove('is-overdrive', 'is-practice');
+  game.classList.remove('is-overdrive', 'is-practice', 'is-storm', 'is-flash');
+  if (ghostShip) ghostShip.visible = false;
   clearGroup(groups.obstacles, materials);
   clearGroup(groups.gates, materials);
   clearGroup(groups.pickups, materials);
@@ -472,6 +651,8 @@ function endGame() {
   if (state.practice) return;
 
   state.mode = MODES.GAMEOVER;
+  game.classList.remove('is-storm', 'is-overdrive');
+  if (ghostShip) ghostShip.visible = false;
 
   const summary = getRunSummary(state);
   const extras = getRunExtras(state);
@@ -485,6 +666,17 @@ function endGame() {
     });
   }
   state.isNewBest = result.isNewBest;
+  lastRunIsNewBest = !!result.isNewBest;
+
+  // Persist ghost path on new best for this board
+  if (result.isNewBest && mode && ghostRecorder?.samples?.length) {
+    try {
+      const raw = serializeGhost(ghostRecorder.samples);
+      saveGhost(mode, JSON.parse(raw));
+    } catch {
+      // ignore
+    }
+  }
 
   processAchievements(summary, { ...extras, completed: true });
 
@@ -536,23 +728,64 @@ function dismissTutorial() {
 // Update loop
 // ---------------------------------------------------------------------------
 function update(delta) {
+  // Gamepad + keyboard merge each frame
+  const pad = pollGamepadSnapshot();
+  const startEdge = gamepadStartEdge(pad, prevGamepadStart);
+  prevGamepadStart = startEdge.prevStart;
+  if (startEdge.pressedEdge) {
+    if (tutorialPanel?.classList.contains('is-visible')) {
+      dismissTutorial();
+    } else if (settingsPanel?.classList.contains('is-visible')) {
+      closeSettings();
+    } else if (state.mode === MODES.PLAYING) {
+      pauseGame();
+    } else if (state.mode === MODES.PAUSED) {
+      resumeGame();
+    } else if (state.mode === MODES.GAMEOVER) {
+      returnToTitle();
+    }
+  }
+  input = mergeInput(keys, pad);
+
   const playing = state.mode === MODES.PLAYING;
   const elapsed = clock.elapsedTime;
   const overdriveActive = playing && state.overdrive > 0;
-  const boostActive = playing && (overdriveActive || (keys.boost && state.boost > 2));
+  const boostActive = playing && (overdriveActive || (input.boost && state.boost > 2));
 
   const reduced = settings.reducedMotion;
   const speedMul = reduced ? 0.92 : 1;
 
   state.targetSpeed =
-    baseTargetSpeed(state.zen, playing ? state.runTime : 0) * speedMul +
-    (keys.boost && state.boost > 2 ? 17 : 0) +
-    (overdriveActive ? 20 : 0);
+    baseTargetSpeed(state.zen || state.practice, playing ? state.runTime : 0) * speedMul +
+    (input.boost && state.boost > 2 ? 17 : 0) +
+    (overdriveActive ? 20 : 0) +
+    (state.stormActive ? 4 : 0);
   state.speed = THREE.MathUtils.lerp(state.speed, state.targetSpeed, 1 - Math.exp(-delta * 2.5));
 
   if (achievementToastTimer > 0) {
     achievementToastTimer = Math.max(0, achievementToastTimer - delta);
     if (achievementToastTimer === 0) flushAchievementToast();
+  }
+
+  // Screen flash decay
+  if (state.flashTimer > 0) {
+    state.flashTimer = Math.max(0, state.flashTimer - delta);
+    if (state.flashTimer === 0) {
+      game.classList.remove('is-flash');
+      if (screenFlashEl) screenFlashEl.classList.remove('is-active');
+    }
+  }
+
+  // FPS meter
+  if (settings.showFps && fpsMeterEl) {
+    fpsFrames += 1;
+    fpsTimer += delta;
+    if (fpsTimer >= 0.4) {
+      fpsValue = Math.round(fpsFrames / fpsTimer);
+      fpsMeterEl.textContent = `${fpsValue} FPS`;
+      fpsFrames = 0;
+      fpsTimer = 0;
+    }
   }
 
   if (playing) {
@@ -572,11 +805,25 @@ function update(delta) {
     state.calloutTimer = Math.max(0, state.calloutTimer - delta);
     state.nearMissCooldown = Math.max(0, state.nearMissCooldown - delta);
 
+    // Rift Storm tick / start
+    const stormEndMsg = tickStorm(state, delta);
+    if (stormEndMsg) {
+      showCallout(stormEndMsg);
+      audio.play('milestone');
+    }
+    const stormStartMsg = maybeStartStorm(state);
+    if (stormStartMsg) {
+      showCallout(stormStartMsg);
+      state.calloutTimer = 1.8;
+      triggerScreenFlash(0.35);
+      audio.play('overdrive');
+    }
+
     if (state.rift >= 100 && !overdriveActive) {
       triggerOverdrive();
     }
 
-    if (keys.boost && state.boost > 2 && !overdriveActive) {
+    if (input.boost && state.boost > 2 && !overdriveActive) {
       state.boost = Math.max(0, state.boost - delta * 22);
       state.combo = Math.min(6, state.combo + delta * 0.18);
     } else {
@@ -590,9 +837,17 @@ function update(delta) {
     }
 
     moveShip(delta, boostActive);
+    tickGhostRecorder(ghostRecorder, ship.position, state.runTime, delta);
+    updateGhostShip();
     spawnObjects();
+    const stormMul = stormScoreMultiplier(state);
     state.scoreCarry +=
-      delta * state.speed * state.combo * (boostActive ? 2.1 : 1) * (overdriveActive ? 1.7 : 1);
+      delta *
+      state.speed *
+      state.combo *
+      (boostActive ? 2.1 : 1) *
+      (overdriveActive ? 1.7 : 1) *
+      stormMul;
     if (state.scoreCarry >= 1) {
       const gained = Math.floor(state.scoreCarry);
       state.score += gained;
@@ -607,6 +862,8 @@ function update(delta) {
 
     const milestones = checkMilestones(state);
     for (const msg of milestones) {
+      // Avoid stacking with RIFT STORM callout on gate 25
+      if (state.stormActive && msg.includes('25 gates')) continue;
       showCallout(msg);
       audio.play('milestone');
     }
@@ -621,10 +878,12 @@ function update(delta) {
       2.6 + Math.sin(elapsed * 1.4) * 0.12,
       1 - Math.exp(-delta * 2),
     );
+    if (ghostShip) ghostShip.visible = false;
   }
 
   if (state.calloutTimer === 0) callout.classList.remove('is-visible');
   game.classList.toggle('is-overdrive', state.overdrive > 0);
+  game.classList.toggle('is-storm', !!state.stormActive);
   updateWorld(delta, elapsed, playing, overdriveActive);
   updateCamera(delta, boostActive, elapsed, overdriveActive);
   updateHud();
@@ -633,8 +892,8 @@ function update(delta) {
 function moveShip(delta, boostActive) {
   const xLimit = getXLimit();
   const overdriveActive = state.overdrive > 0;
-  const horizontal = Number(keys.right) - Number(keys.left);
-  const vertical = Number(keys.up) - Number(keys.down);
+  const horizontal = Number(input.right) - Number(input.left);
+  const vertical = Number(input.up) - Number(input.down);
   const moveSpeed = boostActive ? 9.3 : 7.6;
   ship.position.x += horizontal * moveSpeed * delta;
   ship.position.y += vertical * moveSpeed * delta;
@@ -649,30 +908,48 @@ function moveShip(delta, boostActive) {
       trail.userData.baseScale.y,
       trail.userData.baseScale.z,
     );
-    trail.material.color.setHex(overdriveActive ? palette.amber : palette.cyan);
+    const trailColor = state.stormActive
+      ? palette.violet
+      : overdriveActive
+        ? palette.amber
+        : palette.cyan;
+    trail.material.color.setHex(trailColor);
     trail.material.opacity = overdriveActive ? 0.96 : boostActive ? 0.88 : 0.56;
   });
-  ship.userData.glow.color.setHex(overdriveActive ? palette.amber : palette.cyan);
-  ship.userData.glow.intensity = overdriveActive ? 18 : boostActive ? 12 : 6;
+  ship.userData.glow.color.setHex(
+    state.stormActive ? palette.violet : overdriveActive ? palette.amber : palette.cyan,
+  );
+  ship.userData.glow.intensity = overdriveActive ? 18 : boostActive ? 12 : state.stormActive ? 14 : 6;
 }
 
 function spawnObjects() {
   const rt = state.runTime;
+  const diff = currentDifficulty();
   if (state.spawnTimer <= 0) {
-    state.spawnTimer = gateSpawnInterval(rt);
-    if (random() < gateSpawnChance(rt)) {
-      groups.gates.add(createGate(materials, { runTime: rt, randomX: randomFlightX }));
+    state.spawnTimer = gateSpawnInterval(rt, diff);
+    if (random() < gateSpawnChance(rt, diff)) {
+      groups.gates.add(
+        createGate(materials, { runTime: rt, randomX: randomFlightX, difficulty: diff }),
+      );
     }
   }
 
   // Zen: no deadly hazards. Practice: sparse hazards for free-fly (no hull loss).
   const allowHazards = !state.zen && state.overdrive <= 0;
   if (allowHazards && state.hazardTimer <= 0) {
-    const interval = state.practice ? hazardSpawnInterval(rt) * 1.8 : hazardSpawnInterval(rt);
+    let interval = state.practice
+      ? hazardSpawnInterval(rt, diff) * 1.8
+      : hazardSpawnInterval(rt, diff);
+    interval *= stormHazardIntervalMul(state);
     state.hazardTimer = interval;
-    groups.obstacles.add(createHazard(materials, { runTime: rt, randomX: randomFlightX }));
-    if (!state.practice && random() < doubleHazardChance(rt)) {
-      groups.obstacles.add(createHazard(materials, { runTime: rt, randomX: randomFlightX }));
+    groups.obstacles.add(
+      createHazard(materials, { runTime: rt, randomX: randomFlightX, difficulty: diff }),
+    );
+    const doubleChance = doubleHazardChance(rt, diff) + stormDoubleHazardBonus(state);
+    if (!state.practice && random() < doubleChance) {
+      groups.obstacles.add(
+        createHazard(materials, { runTime: rt, randomX: randomFlightX, difficulty: diff }),
+      );
     }
   }
 
@@ -697,7 +974,8 @@ function updateWorld(delta, elapsed, playing, overdriveActive) {
 
   groups.rails.children.forEach((rail, index) => {
     rail.position.z += travel * rail.userData.speedFactor;
-    rail.material.opacity = 0.24 + Math.sin(elapsed * 5 + index) * 0.08 + (keys.boost ? 0.22 : 0);
+    rail.material.opacity =
+      0.24 + Math.sin(elapsed * 5 + index) * 0.08 + (input.boost ? 0.22 : 0) + (state.stormActive ? 0.12 : 0);
     if (rail.position.z > 18) rail.position.z -= 240;
   });
 
@@ -735,12 +1013,30 @@ function updateWorld(delta, elapsed, playing, overdriveActive) {
   groups.nebula.children.forEach((band, index) => {
     band.position.z += travel * band.userData.drift;
     band.rotation.z += delta * (index % 2 === 0 ? 0.015 : -0.012);
-    band.material.opacity = overdriveActive ? 0.16 : 0.08 + Math.sin(elapsed + index) * 0.015;
+    const stormBoost = state.stormActive ? 0.1 : 0;
+    band.material.opacity = overdriveActive
+      ? 0.16
+      : 0.08 + Math.sin(elapsed + index) * 0.015 + stormBoost;
+    if (state.stormActive) {
+      band.material.color.setHex(index % 2 === 0 ? palette.violet : palette.rose);
+    } else if (band.userData.baseHue == null) {
+      // leave material as created
+    }
     if (band.position.z > 34) {
       band.position.z -= 188;
       band.position.x = randFloatSpread(10);
     }
   });
+
+  // Tunnel tint during Rift Storm
+  if (tunnel?.material) {
+    tunnel.material.color.setHex(state.stormActive ? 0x1a0818 : 0x0a1014);
+    tunnel.material.opacity = state.stormActive ? 0.32 : 0.2;
+  }
+  if (scene.fog) {
+    scene.fog.color.setHex(state.stormActive ? 0x120814 : 0x050609);
+    scene.fog.density = state.stormActive ? 0.068 : 0.055;
+  }
 
   moveDynamicGroup(groups.gates, travel, delta, elapsed);
   moveDynamicGroup(groups.obstacles, travel, delta, elapsed);
@@ -863,6 +1159,8 @@ function updateCollisions() {
     return;
   }
 
+  const diff = currentDifficulty();
+
   // Near-miss scoring (normal / practice, not invulnerable)
   if (!state.zen && state.invulnerable <= 0 && state.nearMissCooldown <= 0) {
     for (const hazard of groups.obstacles.children) {
@@ -872,7 +1170,7 @@ function updateCollisions() {
         skim = isGapWallNearMiss(shipPosition, hazard, 0.58);
       } else {
         const d = shipPosition.distanceTo(hazard.position);
-        skim = isNearMiss(d, hazard.userData.radius, 0.58);
+        skim = isNearMiss(d, hazard.userData.radius, 0.58, diff);
       }
       if (skim) {
         applyNearMiss(state);
@@ -901,7 +1199,7 @@ function updateCollisions() {
       hit = shipPosition.distanceTo(hazard.position) <= hazard.userData.radius + 0.58;
     }
     if (!hit) continue;
-    state.hull -= 24;
+    state.hull -= hazardDamage(diff, 24);
     state.combo = 1;
     state.streak = 0;
     state.rift = Math.max(0, state.rift - 18);
@@ -936,6 +1234,7 @@ function triggerOverdrive() {
   state.combo = Math.min(8, state.combo + 1.2);
   state.shake = Math.max(state.shake, 0.7);
   showCallout('Overdrive');
+  triggerScreenFlash(0.32);
   createShockwaveAt(ship.position, palette.white, 1.4, 1.6);
   audio.play('overdrive');
 }
@@ -995,7 +1294,7 @@ function updateHud() {
   boostBar.style.transform = `scaleX(${state.boost / 100})`;
   riftBar.style.transform = `scaleX(${state.rift / 100})`;
   hullBar.style.filter = !state.practice && state.hull <= 30 ? 'saturate(1.4) brightness(1.15)' : '';
-  boostBar.style.filter = keys.boost ? 'brightness(1.35)' : '';
+  boostBar.style.filter = input.boost ? 'brightness(1.35)' : '';
   riftBar.style.filter = state.overdrive > 0 ? 'brightness(1.8) saturate(1.5)' : '';
 
   // Combo / heat meter polish
@@ -1004,8 +1303,9 @@ function updateHud() {
     comboStat.classList.toggle('combo-hot', heat >= 2.5);
     comboStat.classList.toggle('combo-blaze', heat >= 4.5);
     comboStat.classList.toggle('combo-overdrive', state.overdrive > 0);
+    comboStat.classList.toggle('combo-storm', !!state.stormActive);
   }
-  comboEl.classList.toggle('is-pulse', heat >= 3);
+  comboEl.classList.toggle('is-pulse', heat >= 3 || state.stormActive);
   game.classList.toggle('is-heat', heat >= 3.5);
   game.classList.toggle('is-blaze', heat >= 5.5);
 }
@@ -1030,10 +1330,15 @@ function resize() {
 
 async function shareScore() {
   if (!lastRunSummary) return;
-  const mode = lastRunSummary.daily ? 'daily' : lastRunSummary.zen ? 'zen' : 'normal';
+  const mode = lastRunSummary.daily
+    ? 'daily'
+    : lastRunSummary.zen
+      ? 'zen'
+      : normalBoardModeForDifficulty(lastRunSummary.difficulty || 'normal');
   const text = buildShareText(lastRunSummary, {
     mode,
     dailyKey: lastRunSummary.dailyKey,
+    difficulty: lastRunSummary.difficulty,
   });
   try {
     if (navigator.clipboard?.writeText) {
@@ -1044,6 +1349,40 @@ async function shareScore() {
     }
   } catch {
     // fallback: ignore
+  }
+}
+
+async function shareCard() {
+  if (!lastRunSummary) return;
+  const modeLabel = lastRunSummary.daily
+    ? `Daily Challenge (${lastRunSummary.dailyKey || getTodayKey()})`
+    : lastRunSummary.zen
+      ? 'Zen Run'
+      : lastRunSummary.practice
+        ? 'Practice'
+        : 'Normal Run';
+  const difficultyLabel = lastRunSummary.daily || lastRunSummary.zen || lastRunSummary.practice
+    ? ''
+    : resolveDifficulty(lastRunSummary.difficulty || 'normal').label;
+  const canvas = drawShareCard(lastRunSummary, {
+    modeLabel,
+    difficultyLabel,
+    isNewBest: lastRunIsNewBest || state.isNewBest,
+  });
+  if (!canvas) {
+    showCallout('Share card unavailable');
+    return;
+  }
+  const ok = await downloadCanvasPng(
+    canvas,
+    `neon-rift-${Math.round(lastRunSummary.score)}.png`,
+  );
+  if (ok) {
+    showCallout('Share card saved');
+    state.calloutTimer = 1.4;
+    audio.play('tap');
+  } else {
+    showCallout('Could not export card');
   }
 }
 
@@ -1094,6 +1433,7 @@ restartFromPause?.addEventListener('click', () =>
 titleFromPause?.addEventListener('click', returnToTitle);
 titleFromOver?.addEventListener('click', returnToTitle);
 shareButton?.addEventListener('click', shareScore);
+shareCardButton?.addEventListener('click', shareCard);
 pauseButton?.addEventListener('click', () => {
   if (state.mode === MODES.PLAYING) {
     if (state.practice) {
@@ -1158,6 +1498,21 @@ muteToggle?.addEventListener('change', () => {
   persistSettings();
   refreshSoundIcon();
 });
+fpsToggle?.addEventListener('change', () => {
+  settings.showFps = fpsToggle.checked;
+  persistSettings();
+  updateFpsMeterVisibility();
+});
+difficultySelect?.addEventListener('change', () => {
+  setDifficulty(difficultySelect.value);
+  audio.play('tap');
+});
+difficultyChips.forEach((chip) => {
+  chip.addEventListener('click', () => {
+    setDifficulty(chip.dataset.difficulty);
+    audio.play('tap');
+  });
+});
 
 leaderboardTabs.forEach((tab) => {
   tab.addEventListener('click', () => renderLeaderboard(tab.dataset.board));
@@ -1165,6 +1520,7 @@ leaderboardTabs.forEach((tab) => {
 
 // Init
 state.muted = !!settings.muted;
+state.difficulty = settings.difficulty || 'normal';
 applyBloomSetting();
 applyReducedMotion();
 refreshSoundIcon();

@@ -1,7 +1,12 @@
 import * as THREE from 'three';
 import { palette } from './materials.js';
 import { randFloat, random } from './rng.js';
-import { gateRadiusScale, slicerSpeedFactor } from './difficulty.js';
+import {
+  gapWallChance,
+  gapWallWidth,
+  gateRadiusScale,
+  slicerSpeedFactor,
+} from './difficulty.js';
 
 export function createShip(materials) {
   const craft = new THREE.Group();
@@ -68,11 +73,11 @@ export function createShield() {
   return shieldMesh;
 }
 
-export function createGate(materials, { runTime = 0, randomX } = {}) {
+export function createGate(materials, { runTime = 0, randomX, difficulty = 'normal' } = {}) {
   const group = new THREE.Group();
   const ringMaterial = materials.gate.clone();
   ringMaterial.color.setHex(random() > 0.5 ? palette.cyan : palette.amber);
-  const scale = gateRadiusScale(runTime);
+  const scale = gateRadiusScale(runTime, difficulty);
   const radius = randFloat(1.25, 1.8) * scale;
   const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.065, 10, 48), ringMaterial);
   ring.rotation.y = Math.PI / 2;
@@ -107,19 +112,22 @@ export function createGate(materials, { runTime = 0, randomX } = {}) {
  * Classic mine / slicer, or gap wall (horizontal barrier with a drifting opening).
  * Pass `forceVariant` to pick a type: 'mine' | 'slicer' | 'gapwall'.
  */
-export function createHazard(materials, { runTime = 0, randomX, forceVariant } = {}) {
+export function createHazard(
+  materials,
+  { runTime = 0, randomX, forceVariant, difficulty = 'normal' } = {},
+) {
   let variant = forceVariant;
   if (!variant) {
     const roll = random();
     // Late-game: more gap walls. Early: mostly mines/slicers.
-    const gapChance = Math.min(0.28, 0.08 + runTime * 0.003);
+    const gapChance = gapWallChance(runTime, difficulty);
     if (roll < gapChance) variant = 'gapwall';
     else if (roll < gapChance + 0.38) variant = 'slicer';
     else variant = 'mine';
   }
 
   if (variant === 'gapwall') {
-    return createGapWall(materials, { runTime, randomX });
+    return createGapWall(materials, { runTime, randomX, difficulty });
   }
 
   const group = new THREE.Group();
@@ -156,7 +164,7 @@ export function createHazard(materials, { runTime = 0, randomX, forceVariant } =
   group.scale.setScalar(
     variant === 'slicer' ? randFloat(0.78, 1.12) : randFloat(0.75, 1.35),
   );
-  const speedMul = slicerSpeedFactor(runTime);
+  const speedMul = slicerSpeedFactor(runTime, difficulty);
   group.userData = {
     type: 'hazard',
     variant,
@@ -174,11 +182,11 @@ export function createHazard(materials, { runTime = 0, randomX, forceVariant } =
  * Horizontal barrier spanning the flight corridor with a gap the player flies through.
  * Gap center drifts left/right over time (updated in main moveDynamicGroup).
  */
-export function createGapWall(materials, { runTime = 0, randomX } = {}) {
+export function createGapWall(materials, { runTime = 0, randomX, difficulty = 'normal' } = {}) {
   const group = new THREE.Group();
   const span = 14;
-  // Gap narrows slightly with difficulty
-  const gapWidth = Math.max(1.55, 2.45 - Math.min(0.7, runTime * 0.008));
+  // Gap narrows slightly with time + preset difficulty
+  const gapWidth = gapWallWidth(runTime, difficulty);
   const wallThickness = 0.14;
   const wallDepth = 0.18;
   const wallHeight = 0.55;
@@ -231,7 +239,7 @@ export function createGapWall(materials, { runTime = 0, randomX } = {}) {
   const y = randFloat(2.0, 4.8);
   group.position.set(0, y, -132);
 
-  const speedMul = slicerSpeedFactor(runTime);
+  const speedMul = slicerSpeedFactor(runTime, difficulty);
   const initialGap =
     typeof randomX === 'function' ? randomX(0.4) : randFloat(-3.2, 3.2);
 

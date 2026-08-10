@@ -180,8 +180,20 @@ describe('run summary / leaderboard mode', () => {
   it('selects leaderboard mode', () => {
     expect(leaderboardMode({ daily: true, zen: false })).toBe('daily');
     expect(leaderboardMode({ daily: false, zen: true })).toBe('zen');
-    expect(leaderboardMode({ daily: false, zen: false })).toBe('normal');
+    expect(leaderboardMode({ daily: false, zen: false, difficulty: 'normal' })).toBe('normal');
+    expect(leaderboardMode({ daily: false, zen: false, difficulty: 'easy' })).toBe('normal:easy');
+    expect(leaderboardMode({ daily: false, zen: false, difficulty: 'hard' })).toBe('normal:hard');
     expect(leaderboardMode({ practice: true, daily: false, zen: false })).toBe(null);
+  });
+
+  it('tracks difficulty on reset and summary', () => {
+    const s = createGameState();
+    resetRunState(s, { difficulty: 'hard' });
+    expect(s.difficulty).toBe('hard');
+    expect(s.stormActive).toBe(false);
+    expect(s.nextStormGate).toBe(25);
+    const sum = getRunSummary(s);
+    expect(sum.difficulty).toBe('hard');
   });
 
   it('exposes run extras for achievements', () => {

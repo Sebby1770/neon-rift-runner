@@ -70,6 +70,14 @@
                 <strong id="splashAchievements">0/10</strong>
               </div>
             </div>
+            <div class="difficulty-row" role="group" aria-label="Difficulty">
+              <span class="difficulty-label">Difficulty</span>
+              <div class="difficulty-chips">
+                <button type="button" class="diff-chip" data-difficulty="easy">Easy</button>
+                <button type="button" class="diff-chip is-active" data-difficulty="normal">Normal</button>
+                <button type="button" class="diff-chip" data-difficulty="hard">Hard</button>
+              </div>
+            </div>
           </div>
 
           <div class="actions">
@@ -190,6 +198,10 @@
             <i data-lucide="share-2"></i>
             <span>Copy Score</span>
           </button>
+          <button id="shareCardButton" class="secondary">
+            <i data-lucide="image"></i>
+            <span>Share Card</span>
+          </button>
           <button id="titleFromOver" class="secondary">
             <i data-lucide="home"></i>
             <span>Title</span>
@@ -228,6 +240,18 @@
               <span>Reduced motion</span>
               <input id="reducedMotionToggle" type="checkbox" />
             </label>
+            <label class="setting-row">
+              <span>FPS meter</span>
+              <input id="fpsToggle" type="checkbox" />
+            </label>
+            <label class="setting-row">
+              <span>Difficulty</span>
+              <select id="difficultySelect" class="setting-select" aria-label="Difficulty preset">
+                <option value="easy">Easy</option>
+                <option value="normal" selected>Normal</option>
+                <option value="hard">Hard</option>
+              </select>
+            </label>
           </div>
 
           <div class="achievements-section">
@@ -265,6 +289,8 @@
 
       <div id="callout" class="callout" aria-hidden="true"></div>
       <div id="achievementToast" class="achievement-toast" aria-live="polite"></div>
+      <div id="screenFlash" class="screen-flash" aria-hidden="true"></div>
+      <div id="fpsMeter" class="fps-meter" hidden aria-live="off"></div>
 
       <nav class="touch-controls" aria-label="Touch flight controls">
         <button data-hold="left" title="Left">

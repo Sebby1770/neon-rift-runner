@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.2.0] — 2026-08-10
+
+### Features
+- **Difficulty presets** — Easy / Normal / Hard on splash + Settings; pure scales in `difficulty.js` for spawn density, gate size, hazard damage, near-miss window; persisted in settings; separate Normal leaderboards per difficulty (`normal`, `normal:easy`, `normal:hard`)
+- **Rift Storm** — every ~25 gates, ~8s storm phase with denser hazards, score multiplier, violet tunnel tint, and “RIFT STORM” / “Storm clear” callouts (`storm.js`)
+- **Gamepad support** — Gamepad API: left stick / D-pad move, A / RT boost, Start pause; merges with keyboard (`input.js`)
+- **Ghost best path** — sample ship x,y every 0.1s; on new best, save path per mode; next run shows translucent ghost ship (`ghost.js` + storage)
+- **Share card** — game-over “Share Card” draws cyberpunk score art to PNG download (`shareCard.js`)
+- **FPS meter** — optional Settings toggle (default off)
+- **Overdrive screen flash** — brief neon flash on overdrive (and storm start)
+
+### Quality
+- Vitest for difficulty presets, storm helpers, ghost serialize/playback, gamepad merge, per-difficulty boards
+- package version `2.2.0`; README expanded
+- 100 unit tests
+
 ## [2.1.0] — 2026-08-09
 
 ### Features

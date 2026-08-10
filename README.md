@@ -2,41 +2,44 @@
 
 A full-screen **3D cyberpunk tunnel arcade** built with [Three.js](https://threejs.org/), [Vite](https://vitejs.dev/), and a lightweight Web Audio synth.
 
-Fly a pulse craft through neon gates, collect boost and rift shards, dodge moving slicers and **gap walls**, skim hazards for near-miss bonuses, unlock **achievements**, and charge **Overdrive** for a short invulnerable speed burst.
+Fly a pulse craft through neon gates, collect boost and rift shards, dodge moving slicers and **gap walls**, skim hazards for near-miss bonuses, survive **Rift Storms**, unlock **achievements**, and charge **Overdrive** for a short invulnerable speed burst.
 
-![Neon Rift Runner](https://img.shields.io/badge/version-2.1.0-brightgreen) ![license](https://img.shields.io/badge/license-MIT-blue)
+![Neon Rift Runner](https://img.shields.io/badge/version-2.2.0-brightgreen) ![license](https://img.shields.io/badge/license-MIT-blue)
 
 ## Features
 
 - **3D tunnel flight** with bloom, skyline, rails, particles, and nebula bands
+- **Difficulty presets** — Easy / Normal / Hard (spawn density, gate size, damage, near-miss window)
 - **Gates** — thread rings to build streak, combo, and rift charge
 - **Hazards** — mines, swaying slicers, and **gap walls** (drifting openings)
+- **Rift Storm** — every ~25 gates: denser hazards, score multiplier, violet sky shift
 - **Near-miss scoring** when you skim hazards
 - **Pickups** — boost, shield, and violet rift shards
-- **Overdrive** — fill the Rift meter for invulnerable speed and hazard smashing
+- **Overdrive** — fill the Rift meter for invulnerable speed and hazard smashing (screen flash)
+- **Ghost best path** — translucent replay of your best run path (per mode / difficulty)
 - **Zen mode** — no hull damage, chill cruise speed
 - **Practice mode** — infinite hull, no game-over; Esc returns to title
 - **Daily Challenge** — layout seeded from `YYYY-MM-DD` so the same day is the same run
 - **Achievements** — 10 unlocks with toasts and a Settings list
 - **First-run tutorial** — move, boost, gates, overdrive (re-show from Settings)
-- **Local leaderboards** — top 10 for Normal, Zen, and Daily
-- **Settings** — mute, SFX / music volume, music toggle, bloom, reduced motion
+- **Local leaderboards** — top 10 for Normal (per difficulty), Zen, and Daily
+- **Settings** — mute, SFX / music volume, music toggle, bloom, reduced motion, FPS meter, difficulty
 - **Ambient music bed** — soft pad + arpeggio (optional)
 - **Combo heat polish** — Flow meter pulses and glows at high combo
 - **PWA lite** — installable shell + basic offline cache (`public/sw.js`)
-- **Touch controls** on small / coarse-pointer screens
-- **Share** — copy a score blurb after a run
+- **Touch + gamepad** — on-screen pad; stick / D-pad / A / RT / Start
+- **Share** — copy score text or download a PNG **share card**
 
 ## Controls
 
-| Action | Keyboard | Touch |
-|--------|----------|--------|
-| Move | `WASD` / arrows | On-screen pad |
-| Boost | `Space` / `Shift` | Zap button |
-| Pause | `Esc` | Pause button |
-| Title (practice) | `Esc` | Pause → Title |
-| Mute | Sound button | Sound button |
-| Settings | Gear button | Gear button |
+| Action | Keyboard | Touch | Gamepad |
+|--------|----------|--------|---------|
+| Move | `WASD` / arrows | On-screen pad | Left stick / D-pad |
+| Boost | `Space` / `Shift` | Zap button | A / RT |
+| Pause | `Esc` | Pause button | Start |
+| Title (practice) | `Esc` | Pause → Title | Start (from pause) |
+| Mute | Sound button | Sound button | — |
+| Settings | Gear button | Gear button | — |
 
 ## Play locally
 
@@ -62,12 +65,15 @@ src/
   styles.css
   game/
     state.js           # pure state factory + score helpers (tested)
-    difficulty.js      # progressive difficulty curves (tested)
-    storage.js         # localStorage scores, settings, achievements (tested)
+    difficulty.js      # progressive curves + Easy/Normal/Hard presets (tested)
+    storm.js           # Rift Storm start/end/tick helpers (tested)
+    ghost.js           # best-path sample / serialize / playback (tested)
+    shareCard.js       # offscreen canvas score card PNG
+    storage.js         # localStorage scores, settings, achievements, ghost (tested)
     achievements.js    # unlock catalog + checks (tested)
     rng.js             # seeded PRNG for daily runs (tested)
     audio.js           # Web Audio SFX + music bed
-    input.js           # keyboard / touch holds
+    input.js           # keyboard / touch / gamepad (tested)
     entities.js        # ship, gates, hazards (incl. gap wall), pickups
     world.js           # tunnel, skyline, particles, rails, nebula
     materials.js       # shared Three.js materials + palette
@@ -79,6 +85,18 @@ public/
 
 Gameplay and visual systems stay in plain ES modules — **no React or other UI framework**.
 
+### Difficulty presets
+
+`DIFFICULTY_PRESETS` in `difficulty.js` scale gate/hazard intervals, gate radius, gap walls, slicer speed, near-miss pad, and hull damage. Selection is stored in `neon-rift:settings` (`difficulty`). Normal-mode leaderboards are split by preset keys: `normal`, `normal:easy`, `normal:hard`.
+
+### Rift Storm
+
+Every 25 gates (normal/daily only), `storm.js` starts an 8s phase with denser hazards and a score multiplier. State fields: `stormActive`, `stormTimer`, `stormMultiplier`, `nextStormGate`.
+
+### Ghost path
+
+During a run, positions are sampled ~10 Hz (capped). On a new best for that board key, samples are saved under `neon-rift:ghost`. The next run interpolates a translucent ship along that path by `runTime`.
+
 ### Daily challenge seeding
 
 `createDailyRng(YYYY-MM-DD)` hashes the date into a Mulberry32 seed. While a daily run is active, spawn positions and rolls use that PRNG so layouts match for everyone on the same calendar day (local timezone).
@@ -89,12 +107,12 @@ Unlocks are pure checks in `achievements.js` against a run summary (`score`, `ga
 
 ## Screenshots (what you’ll see)
 
-- **Splash** — title lockup, Launch / Daily / Zen / Practice, best chips, achievements count, tabbed leaderboard
+- **Splash** — title lockup, difficulty chips, Launch / Daily / Zen / Practice, best chips, achievements count, tabbed leaderboard
 - **Tutorial** — first-run flight brief
-- **HUD** — hull / boost / rift meters, score, flow combo (heat glow), streak, gates
-- **Callouts** — overdrive, near miss, milestones, pickups, achievement toasts
-- **Game over** — score, gates, max streak, time, best ever, NEW BEST badge, copy score
-- **Settings** — mute, SFX/music volume, music, bloom, reduced motion, achievements list, re-show tutorial
+- **HUD** — hull / boost / rift meters, score, flow combo (heat glow), streak, gates; optional FPS meter
+- **Callouts** — overdrive, Rift Storm, near miss, milestones, pickups, achievement toasts
+- **Game over** — score, gates, max streak, time, best ever, NEW BEST badge, copy score, share card PNG
+- **Settings** — mute, SFX/music volume, music, bloom, reduced motion, FPS, difficulty, achievements list, re-show tutorial
 
 ## PWA / install
 

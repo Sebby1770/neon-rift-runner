@@ -2,6 +2,8 @@
  * Pure game state factory and score/combo helpers (testable, no DOM/Three).
  */
 
+import { resetStormState, stormScoreMultiplier } from './storm.js';
+
 export const MODES = {
   TITLE: 'title',
   PLAYING: 'playing',
@@ -10,12 +12,13 @@ export const MODES = {
 };
 
 export function createGameState(overrides = {}) {
-  return {
+  const state = {
     mode: MODES.TITLE,
     zen: false,
     daily: false,
     practice: false,
     dailyKey: null,
+    difficulty: 'normal',
     muted: false,
     score: 0,
     scoreCarry: 0,
@@ -43,8 +46,22 @@ export function createGameState(overrides = {}) {
     nearMisses: 0,
     // Best-score tracking for current session end
     isNewBest: false,
+    // Screen flash (seconds remaining)
+    flashTimer: 0,
+    // Rift Storm fields (also set by resetStormState)
+    stormActive: false,
+    stormTimer: 0,
+    stormMultiplier: 1,
+    nextStormGate: 25,
     ...overrides,
   };
+  resetStormState(state);
+  // Re-apply overrides that resetStormState might have wiped
+  if (overrides.stormActive != null) state.stormActive = overrides.stormActive;
+  if (overrides.stormTimer != null) state.stormTimer = overrides.stormTimer;
+  if (overrides.stormMultiplier != null) state.stormMultiplier = overrides.stormMultiplier;
+  if (overrides.nextStormGate != null) state.nextStormGate = overrides.nextStormGate;
+  return state;
 }
 
 /**
@@ -53,13 +70,20 @@ export function createGameState(overrides = {}) {
  */
 export function resetRunState(
   state,
-  { zen = false, daily = false, practice = false, dailyKey = null } = {},
+  {
+    zen = false,
+    daily = false,
+    practice = false,
+    dailyKey = null,
+    difficulty = 'normal',
+  } = {},
 ) {
   state.mode = MODES.PLAYING;
   state.zen = zen;
   state.daily = daily;
   state.practice = practice;
   state.dailyKey = dailyKey;
+  state.difficulty = difficulty || 'normal';
   state.score = 0;
   state.scoreCarry = 0;
   state.gates = 0;
@@ -84,6 +108,8 @@ export function resetRunState(
   state.nearMissCooldown = 0;
   state.nearMisses = 0;
   state.isNewBest = false;
+  state.flashTimer = 0;
+  resetStormState(state);
   return state;
 }
 
@@ -99,8 +125,8 @@ export function formatTime(seconds) {
 }
 
 /** Score awarded for successfully clearing a gate. */
-export function gateClearScore(streak, combo) {
-  return Math.round((260 + streak * 16) * combo);
+export function gateClearScore(streak, combo, stormMul = 1) {
+  return Math.round((260 + streak * 16) * combo * stormMul);
 }
 
 /** Apply a successful gate pass. Mutates state, returns points gained. */
@@ -109,7 +135,8 @@ export function applyGateClear(state) {
   state.streak += 1;
   if (state.streak > state.maxStreak) state.maxStreak = state.streak;
   state.combo = Math.min(6, state.combo + 0.38);
-  const points = gateClearScore(state.streak, state.combo);
+  const mul = stormScoreMultiplier(state);
+  const points = gateClearScore(state.streak, state.combo, mul);
   state.score += points;
   state.boost = Math.min(100, state.boost + 10);
   state.rift = Math.min(100, state.rift + 12 + Math.min(10, state.streak));
@@ -126,7 +153,8 @@ export function applyGateMiss(state) {
 
 /** Near-miss bonus when skimming a hazard without colliding. */
 export function applyNearMiss(state) {
-  const points = Math.round(140 * state.combo);
+  const mul = stormScoreMultiplier(state);
+  const points = Math.round(140 * state.combo * mul);
   state.score += points;
   state.combo = Math.min(6, state.combo + 0.12);
   state.nearMissCooldown = 0.55;
@@ -140,6 +168,7 @@ export const GATE_MILESTONES = [10, 25, 50, 100];
 
 /**
  * Check and mark milestones. Returns list of callout messages to show.
+ * Skips the 25-gate callout text when a storm will claim that moment (optional).
  */
 export function checkMilestones(state) {
   const messages = [];
@@ -175,6 +204,7 @@ export function getRunSummary(state) {
     practice: state.practice,
     dailyKey: state.dailyKey,
     nearMisses: state.nearMisses || 0,
+    difficulty: state.difficulty || 'normal',
   };
 }
 
@@ -186,10 +216,17 @@ export function getRunExtras(state) {
   };
 }
 
-/** Leaderboard mode key for a finished run. */
+/**
+ * Leaderboard mode key for a finished run.
+ * Normal mode is keyed by difficulty: normal | normal:easy | normal:hard
+ * (plain "normal" keeps backward compatibility for Normal difficulty).
+ */
 export function leaderboardMode(state) {
   if (state.practice) return null;
   if (state.daily) return 'daily';
   if (state.zen) return 'zen';
+  const diff = state.difficulty || 'normal';
+  if (diff === 'easy') return 'normal:easy';
+  if (diff === 'hard') return 'normal:hard';
   return 'normal';
 }

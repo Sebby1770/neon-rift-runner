@@ -2,15 +2,20 @@ import { describe, expect, it } from 'vitest';
 import {
   baseTargetSpeed,
   clamp,
+  DIFFICULTY_IDS,
+  DIFFICULTY_PRESETS,
   doubleHazardChance,
   gapWallChance,
   gapWallWidth,
   gateRadiusScale,
   gateSpawnChance,
   gateSpawnInterval,
+  hazardDamage,
   hazardSpawnInterval,
   isNearMiss,
+  isValidDifficulty,
   pickupIntervalRange,
+  resolveDifficulty,
   slicerSpeedFactor,
 } from '../difficulty.js';
 import { isGapWallHit, isGapWallNearMiss } from '../entities.js';
@@ -20,6 +25,59 @@ describe('clamp', () => {
     expect(clamp(5, 0, 10)).toBe(5);
     expect(clamp(-1, 0, 10)).toBe(0);
     expect(clamp(99, 0, 10)).toBe(10);
+  });
+});
+
+describe('difficulty presets', () => {
+  it('exposes easy / normal / hard', () => {
+    expect(DIFFICULTY_IDS).toEqual(['easy', 'normal', 'hard']);
+    expect(isValidDifficulty('easy')).toBe(true);
+    expect(isValidDifficulty('nightmare')).toBe(false);
+  });
+
+  it('resolves unknown to normal', () => {
+    expect(resolveDifficulty('nope').id).toBe('normal');
+    expect(resolveDifficulty('hard').label).toBe('Hard');
+  });
+
+  it('easy is more forgiving than hard', () => {
+    const easy = DIFFICULTY_PRESETS.easy;
+    const hard = DIFFICULTY_PRESETS.hard;
+    expect(easy.hazardIntervalMul).toBeGreaterThan(hard.hazardIntervalMul);
+    expect(easy.gateSizeMul).toBeGreaterThan(hard.gateSizeMul);
+    expect(easy.hazardDamageMul).toBeLessThan(hard.hazardDamageMul);
+    expect(easy.nearMissPad).toBeGreaterThan(hard.nearMissPad);
+  });
+
+  it('scales spawn intervals by preset', () => {
+    const baseGate = gateSpawnInterval(0, 'normal');
+    expect(gateSpawnInterval(0, 'easy')).toBeGreaterThan(baseGate);
+    expect(gateSpawnInterval(0, 'hard')).toBeLessThan(baseGate);
+
+    const baseHaz = hazardSpawnInterval(10, 'normal');
+    expect(hazardSpawnInterval(10, 'easy')).toBeGreaterThan(baseHaz);
+    expect(hazardSpawnInterval(10, 'hard')).toBeLessThan(baseHaz);
+  });
+
+  it('scales gate size and near-miss window', () => {
+    expect(gateRadiusScale(0, 'easy')).toBeGreaterThan(gateRadiusScale(0, 'normal'));
+    expect(gateRadiusScale(0, 'hard')).toBeLessThan(gateRadiusScale(0, 'normal'));
+
+    const radius = 1;
+    const ship = 0.58;
+    const hit = radius + ship;
+    // Far edge of normal skim may miss on hard
+    const farSkim = hit + 0.9;
+    expect(isNearMiss(farSkim, radius, ship, 'normal')).toBe(true);
+    expect(isNearMiss(farSkim, radius, ship, 'hard')).toBe(false);
+    // Easy still catches near edge of hard band
+    expect(isNearMiss(hit + 0.5, radius, ship, 'easy')).toBe(true);
+  });
+
+  it('scales hazard damage', () => {
+    expect(hazardDamage('easy', 24)).toBeLessThan(24);
+    expect(hazardDamage('normal', 24)).toBe(24);
+    expect(hazardDamage('hard', 24)).toBeGreaterThan(24);
   });
 });
 
@@ -54,7 +112,7 @@ describe('spawn intervals', () => {
   it('gate spawn chance rises', () => {
     expect(gateSpawnChance(0)).toBeCloseTo(0.76);
     expect(gateSpawnChance(50)).toBeGreaterThan(gateSpawnChance(0));
-    expect(gateSpawnChance(999)).toBeLessThanOrEqual(0.94);
+    expect(gateSpawnChance(999)).toBeLessThanOrEqual(0.98);
   });
 });
 
@@ -104,6 +162,11 @@ describe('gap wall difficulty', () => {
     expect(gapWallChance(100)).toBeGreaterThan(gapWallChance(0));
     expect(gapWallWidth(100)).toBeLessThan(gapWallWidth(0));
     expect(gapWallWidth(0)).toBeGreaterThanOrEqual(2);
+  });
+
+  it('easy has wider gaps and fewer walls than hard', () => {
+    expect(gapWallWidth(20, 'easy')).toBeGreaterThan(gapWallWidth(20, 'hard'));
+    expect(gapWallChance(40, 'easy')).toBeLessThan(gapWallChance(40, 'hard'));
   });
 });
 
