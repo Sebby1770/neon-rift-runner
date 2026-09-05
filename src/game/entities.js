@@ -103,6 +103,7 @@ export function createGate(materials, { runTime = 0, randomX, difficulty = 'norm
     radius,
     hitRadius: radius * 0.88,
     scored: false,
+    previousZ: -128,
     spin: randFloat(0.8, 1.8),
   };
   return group;
@@ -305,6 +306,41 @@ export function isGapWallNearMiss(shipPos, hazard, shipRadius = 0.58) {
   const clearance = halfGap - dx;
   // Must be inside the opening with little room to the wall edge
   return clearance > shipRadius * 0.15 && clearance < 0.95;
+}
+
+/** Gates are resolved as they pass the ship, which sits at z = 0. */
+export const GATE_PLANE_Z = 0;
+
+/**
+ * True when a gate moved across the ship's plane during the last step.
+ *
+ * Gates used to be resolved only if one of their sampled positions happened to
+ * land inside a fixed z-window (-1.2 to 1.1). A gate advances `speed * delta`
+ * per frame, which at full boosted overdrive (~83 u/s) and the 0.05s worst case
+ * the render loop clamps to is 4.15 units — wider than the 2.3-unit window. The
+ * gate could step clean over it and resolve as nothing at all: no points, no
+ * miss penalty, no sound. Testing the crossing makes scoring frame-rate
+ * independent.
+ */
+export function crossedGatePlane(previousZ, currentZ, plane = GATE_PLANE_Z) {
+  return previousZ < plane && currentZ >= plane;
+}
+
+/**
+ * Ship-to-gate distance measured in the gate's own plane.
+ *
+ * A gate is a ring flown through, so only the lateral offset decides whether it
+ * was cleared. The full 3D distance also charged the player for the gate's
+ * leftover z offset, which grows with speed — the faster you flew, the harder an
+ * identically placed gate became.
+ */
+export function gatePlanarDistance(shipPos, gate) {
+  return Math.hypot(shipPos.x - gate.position.x, shipPos.y - gate.position.y);
+}
+
+/** Did the ship pass inside the ring? */
+export function isGateCleared(shipPos, gate) {
+  return gatePlanarDistance(shipPos, gate) < (gate.userData?.hitRadius ?? 0);
 }
 
 export function createPickup(materials, kind = 'boost', { randomX } = {}) {

@@ -21,6 +21,8 @@ import {
 import {
   clearGroup,
   createGate,
+  crossedGatePlane,
+  isGateCleared,
   createHazard,
   createPickup,
   createShield,
@@ -591,6 +593,7 @@ function startGame({ zen = false, daily = false, practice = false } = {}) {
       difficulty,
     });
     gate.position.z = -55 - i * 33;
+    gate.userData.previousZ = gate.position.z;
     groups.gates.add(gate);
   }
 
@@ -1055,6 +1058,7 @@ function updateWorld(delta, elapsed, playing, overdriveActive) {
 function moveDynamicGroup(group, travel, delta, elapsed) {
   for (let i = group.children.length - 1; i >= 0; i -= 1) {
     const object = group.children[i];
+    object.userData.previousZ = object.position.z;
     object.position.z += travel;
     object.rotation.z += delta * (object.userData.spin || 0);
     object.rotation.y += delta * (object.userData.spin || 0) * 0.44;
@@ -1093,10 +1097,10 @@ function updateCollisions() {
   const shipPosition = ship.position;
 
   groups.gates.children.forEach((gate) => {
-    if (gate.userData.scored || gate.position.z < -1.2 || gate.position.z > 1.1) return;
-    const distance = shipPosition.distanceTo(gate.position);
+    if (gate.userData.scored) return;
+    if (!crossedGatePlane(gate.userData.previousZ ?? gate.position.z, gate.position.z)) return;
     gate.userData.scored = true;
-    if (distance < gate.userData.hitRadius) {
+    if (isGateCleared(shipPosition, gate)) {
       applyGateClear(state);
       pulseObject(gate, palette.lime);
       createShockwaveAt(gate.position, state.streak >= 4 ? palette.amber : palette.lime, gate.userData.radius);
@@ -1407,6 +1411,15 @@ window.addEventListener('keydown', (event) =>
   }),
 );
 window.addEventListener('keyup', (event) => handleKeyEvent(keys, event, false));
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden || state.mode !== MODES.PLAYING) return;
+  // A background tab stops painting but the run kept going, so players came back
+  // to a wrecked ship. Pause directly rather than calling pauseGame(), which
+  // drops practice runs to the title — that is what Esc is for.
+  state.mode = MODES.PAUSED;
+  setOverlay(pausePanel, true);
+});
+
 window.addEventListener('resize', resize);
 window.addEventListener('pointermove', (event) => {
   if (state.mode !== MODES.PLAYING || event.pointerType !== 'mouse') return;
