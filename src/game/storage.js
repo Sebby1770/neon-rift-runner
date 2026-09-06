@@ -24,6 +24,7 @@ const DEFAULT_SETTINGS = {
   reducedMotion: false,
   difficulty: 'normal',
   showFps: false,
+  adaptiveQuality: true,
 };
 
 const MAX_LEADERBOARD = 10;

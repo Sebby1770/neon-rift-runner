@@ -6,6 +6,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 
 import { ACHIEVEMENTS, checkAchievements } from './game/achievements.js';
+import { createQualityGovernor, tierSettings } from './game/performance.js';
 import { createAudio } from './game/audio.js';
 import {
   baseTargetSpeed,
@@ -165,6 +166,7 @@ const musicVolumeSlider = document.querySelector('#musicVolume');
 const musicToggle = document.querySelector('#musicToggle');
 const muteToggle = document.querySelector('#muteToggle');
 const fpsToggle = document.querySelector('#fpsToggle');
+const adaptiveQualityToggle = document.querySelector('#adaptiveQualityToggle');
 const difficultySelect = document.querySelector('#difficultySelect');
 const difficultyChips = document.querySelectorAll('[data-difficulty]');
 const modeBadge = document.querySelector('#modeBadge');
@@ -186,6 +188,9 @@ let lastRunSummary = null;
 let lastRunIsNewBest = false;
 let activeBoardMode = 'normal';
 let bloomEnabled = settings.bloom !== false;
+const qualityGovernor = createQualityGovernor();
+let qualitySettings = qualityGovernor.settings;
+let lastFrameAt = 0;
 let unlockedAchievements = new Set(loadAchievements());
 let achievementToastTimer = 0;
 let pendingAchievementToasts = [];
@@ -299,9 +304,43 @@ const pointerTargets = [ship];
 // Helpers
 // ---------------------------------------------------------------------------
 function applyBloomSetting() {
-  bloomEnabled = settings.bloom !== false;
+  // The user's own bloom switch is the ceiling; adaptive quality may take bloom
+  // away on a struggling device but never turns it on against their wish.
+  bloomEnabled = settings.bloom !== false && qualitySettings.bloom !== false;
   bloomPass.enabled = bloomEnabled;
   if (!bloomEnabled) bloomPass.strength = 0;
+}
+
+/**
+ * Applies a quality tier to the renderer and the decorative particle fields.
+ *
+ * Particles and speed streaks are pooled at startup, so thinning them means
+ * hiding the tail of each pool rather than rebuilding it.
+ */
+function applyQualityTier(tier) {
+  qualitySettings = tierSettings(tier);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, qualitySettings.maxPixelRatio));
+  applyBloomSetting();
+
+  const thin = (group, scale) => {
+    const keep = Math.max(1, Math.round(group.children.length * scale));
+    group.children.forEach((child, index) => {
+      child.visible = index < keep;
+    });
+  };
+  thin(groups.particles, qualitySettings.particleScale);
+  thin(groups.streaks, qualitySettings.streakScale);
+}
+
+function setAdaptiveQuality(enabled) {
+  settings.adaptiveQuality = enabled;
+  if (!enabled) {
+    // Turning it off returns to full detail rather than freezing at whatever
+    // tier the device happened to land on.
+    qualityGovernor.setTier('high');
+    applyQualityTier('high');
+  }
+  persistSettings();
 }
 
 function applyReducedMotion() {
@@ -398,6 +437,7 @@ function syncSettingsUI() {
   if (musicToggle) musicToggle.checked = settings.music !== false;
   if (muteToggle) muteToggle.checked = !!(state.muted || settings.muted);
   if (fpsToggle) fpsToggle.checked = !!settings.showFps;
+  if (adaptiveQualityToggle) adaptiveQualityToggle.checked = settings.adaptiveQuality !== false;
   syncDifficultyUI();
   updateFpsMeterVisibility();
   renderAchievementsList();
@@ -409,6 +449,7 @@ function persistSettings() {
     muted: state.muted,
     difficulty: settings.difficulty || 'normal',
     showFps: !!settings.showFps,
+    adaptiveQuality: settings.adaptiveQuality !== false,
   });
   audio.syncMusic();
 }
@@ -785,7 +826,8 @@ function update(delta) {
     fpsTimer += delta;
     if (fpsTimer >= 0.4) {
       fpsValue = Math.round(fpsFrames / fpsTimer);
-      fpsMeterEl.textContent = `${fpsValue} FPS`;
+      const tier = qualityGovernor.tier;
+      fpsMeterEl.textContent = tier === 'high' ? `${fpsValue} FPS` : `${fpsValue} FPS · ${tier}`;
       fpsFrames = 0;
       fpsTimer = 0;
     }
@@ -1318,6 +1360,16 @@ function animate() {
   const delta = Math.min(clock.getDelta(), 0.05);
   update(delta);
   composer.render();
+
+  // Measured against the wall clock, not `delta`, which is clamped — the whole
+  // point is to notice the frames the clamp hides.
+  const now = performance.now();
+  if (settings.adaptiveQuality !== false && lastFrameAt) {
+    const outcome = qualityGovernor.record(now - lastFrameAt, now);
+    if (outcome.changed) applyQualityTier(outcome.tier);
+  }
+  lastFrameAt = now;
+
   requestAnimationFrame(animate);
 }
 
@@ -1326,7 +1378,7 @@ function resize() {
   const height = window.innerHeight;
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, qualitySettings.maxPixelRatio));
   renderer.setSize(width, height);
   composer.setSize(width, height);
   bloomPass.setSize(width, height);
@@ -1515,6 +1567,9 @@ fpsToggle?.addEventListener('change', () => {
   settings.showFps = fpsToggle.checked;
   persistSettings();
   updateFpsMeterVisibility();
+});
+adaptiveQualityToggle?.addEventListener('change', () => {
+  setAdaptiveQuality(adaptiveQualityToggle.checked);
 });
 difficultySelect?.addEventListener('change', () => {
   setDifficulty(difficultySelect.value);
