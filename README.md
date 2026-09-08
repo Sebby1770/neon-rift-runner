@@ -23,7 +23,8 @@ Fly a pulse craft through neon gates, collect boost and rift shards, dodge movin
 - **Achievements** — 10 unlocks with toasts and a Settings list
 - **First-run tutorial** — move, boost, gates, overdrive (re-show from Settings)
 - **Local leaderboards** — top 10 for Normal (per difficulty), Zen, and Daily
-- **Settings** — mute, SFX / music volume, music toggle, bloom, reduced motion, FPS meter, difficulty
+- **Settings** — mute, SFX / music volume, music toggle, bloom, reduced motion, FPS meter, adaptive quality, difficulty
+- **Adaptive quality** — watches real frame times and steps pixel ratio, bloom and particle density down on a struggling device, then back up when it recovers (toggleable)
 - **Ambient music bed** — soft pad + arpeggio (optional)
 - **Combo heat polish** — Flow meter pulses and glows at high combo
 - **PWA lite** — installable shell + basic offline cache (`public/sw.js`)
@@ -112,7 +113,7 @@ Unlocks are pure checks in `achievements.js` against a run summary (`score`, `ga
 - **HUD** — hull / boost / rift meters, score, flow combo (heat glow), streak, gates; optional FPS meter
 - **Callouts** — overdrive, Rift Storm, near miss, milestones, pickups, achievement toasts
 - **Game over** — score, gates, max streak, time, best ever, NEW BEST badge, copy score, share card PNG
-- **Settings** — mute, SFX/music volume, music, bloom, reduced motion, FPS, difficulty, achievements list, re-show tutorial
+- **Settings** — mute, SFX/music volume, music, bloom, reduced motion, FPS, adaptive quality, difficulty, achievements list, re-show tutorial
 
 ## PWA / install
 

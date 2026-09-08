@@ -6,6 +6,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 
 import { ACHIEVEMENTS, checkAchievements } from './game/achievements.js';
+import { createQualityGovernor, tierSettings } from './game/performance.js';
 import { createAudio } from './game/audio.js';
 import {
   baseTargetSpeed,
@@ -21,6 +22,8 @@ import {
 import {
   clearGroup,
   createGate,
+  crossedGatePlane,
+  isGateCleared,
   createHazard,
   createPickup,
   createShield,
@@ -163,6 +166,7 @@ const musicVolumeSlider = document.querySelector('#musicVolume');
 const musicToggle = document.querySelector('#musicToggle');
 const muteToggle = document.querySelector('#muteToggle');
 const fpsToggle = document.querySelector('#fpsToggle');
+const adaptiveQualityToggle = document.querySelector('#adaptiveQualityToggle');
 const difficultySelect = document.querySelector('#difficultySelect');
 const difficultyChips = document.querySelectorAll('[data-difficulty]');
 const modeBadge = document.querySelector('#modeBadge');
@@ -184,6 +188,9 @@ let lastRunSummary = null;
 let lastRunIsNewBest = false;
 let activeBoardMode = 'normal';
 let bloomEnabled = settings.bloom !== false;
+const qualityGovernor = createQualityGovernor();
+let qualitySettings = qualityGovernor.settings;
+let lastFrameAt = 0;
 let unlockedAchievements = new Set(loadAchievements());
 let achievementToastTimer = 0;
 let pendingAchievementToasts = [];
@@ -297,9 +304,43 @@ const pointerTargets = [ship];
 // Helpers
 // ---------------------------------------------------------------------------
 function applyBloomSetting() {
-  bloomEnabled = settings.bloom !== false;
+  // The user's own bloom switch is the ceiling; adaptive quality may take bloom
+  // away on a struggling device but never turns it on against their wish.
+  bloomEnabled = settings.bloom !== false && qualitySettings.bloom !== false;
   bloomPass.enabled = bloomEnabled;
   if (!bloomEnabled) bloomPass.strength = 0;
+}
+
+/**
+ * Applies a quality tier to the renderer and the decorative particle fields.
+ *
+ * Particles and speed streaks are pooled at startup, so thinning them means
+ * hiding the tail of each pool rather than rebuilding it.
+ */
+function applyQualityTier(tier) {
+  qualitySettings = tierSettings(tier);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, qualitySettings.maxPixelRatio));
+  applyBloomSetting();
+
+  const thin = (group, scale) => {
+    const keep = Math.max(1, Math.round(group.children.length * scale));
+    group.children.forEach((child, index) => {
+      child.visible = index < keep;
+    });
+  };
+  thin(groups.particles, qualitySettings.particleScale);
+  thin(groups.streaks, qualitySettings.streakScale);
+}
+
+function setAdaptiveQuality(enabled) {
+  settings.adaptiveQuality = enabled;
+  if (!enabled) {
+    // Turning it off returns to full detail rather than freezing at whatever
+    // tier the device happened to land on.
+    qualityGovernor.setTier('high');
+    applyQualityTier('high');
+  }
+  persistSettings();
 }
 
 function applyReducedMotion() {
@@ -396,6 +437,7 @@ function syncSettingsUI() {
   if (musicToggle) musicToggle.checked = settings.music !== false;
   if (muteToggle) muteToggle.checked = !!(state.muted || settings.muted);
   if (fpsToggle) fpsToggle.checked = !!settings.showFps;
+  if (adaptiveQualityToggle) adaptiveQualityToggle.checked = settings.adaptiveQuality !== false;
   syncDifficultyUI();
   updateFpsMeterVisibility();
   renderAchievementsList();
@@ -407,6 +449,7 @@ function persistSettings() {
     muted: state.muted,
     difficulty: settings.difficulty || 'normal',
     showFps: !!settings.showFps,
+    adaptiveQuality: settings.adaptiveQuality !== false,
   });
   audio.syncMusic();
 }
@@ -512,12 +555,25 @@ function renderLeaderboard(mode = 'normal') {
     leaderboardList.innerHTML = `<li class="empty">No scores yet${diffHint} — launch a run.</li>`;
     return;
   }
-  leaderboardList.innerHTML = board
-    .map(
-      (entry, i) =>
-        `<li><span class="rank">#${i + 1}</span><span class="pts">${formatScore(entry.score)}</span><span class="meta">${entry.gates}g · ${formatTime(entry.runTime)}</span></li>`,
-    )
-    .join('');
+  // Built as nodes rather than an innerHTML template: these values come from
+  // localStorage, which is shared by every project on the same origin, so no
+  // field here should ever be able to become markup.
+  leaderboardList.replaceChildren(
+    ...board.map((entry, i) => {
+      const row = document.createElement('li');
+      const rank = document.createElement('span');
+      rank.className = 'rank';
+      rank.textContent = `#${i + 1}`;
+      const pts = document.createElement('span');
+      pts.className = 'pts';
+      pts.textContent = formatScore(entry.score);
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = `${entry.gates}g · ${formatTime(entry.runTime)}`;
+      row.append(rank, pts, meta);
+      return row;
+    }),
+  );
 }
 
 function loadGhostForRun({ zen, daily, practice, difficulty }) {
@@ -591,6 +647,7 @@ function startGame({ zen = false, daily = false, practice = false } = {}) {
       difficulty,
     });
     gate.position.z = -55 - i * 33;
+    gate.userData.previousZ = gate.position.z;
     groups.gates.add(gate);
   }
 
@@ -782,7 +839,8 @@ function update(delta) {
     fpsTimer += delta;
     if (fpsTimer >= 0.4) {
       fpsValue = Math.round(fpsFrames / fpsTimer);
-      fpsMeterEl.textContent = `${fpsValue} FPS`;
+      const tier = qualityGovernor.tier;
+      fpsMeterEl.textContent = tier === 'high' ? `${fpsValue} FPS` : `${fpsValue} FPS · ${tier}`;
       fpsFrames = 0;
       fpsTimer = 0;
     }
@@ -1055,6 +1113,7 @@ function updateWorld(delta, elapsed, playing, overdriveActive) {
 function moveDynamicGroup(group, travel, delta, elapsed) {
   for (let i = group.children.length - 1; i >= 0; i -= 1) {
     const object = group.children[i];
+    object.userData.previousZ = object.position.z;
     object.position.z += travel;
     object.rotation.z += delta * (object.userData.spin || 0);
     object.rotation.y += delta * (object.userData.spin || 0) * 0.44;
@@ -1093,10 +1152,10 @@ function updateCollisions() {
   const shipPosition = ship.position;
 
   groups.gates.children.forEach((gate) => {
-    if (gate.userData.scored || gate.position.z < -1.2 || gate.position.z > 1.1) return;
-    const distance = shipPosition.distanceTo(gate.position);
+    if (gate.userData.scored) return;
+    if (!crossedGatePlane(gate.userData.previousZ ?? gate.position.z, gate.position.z)) return;
     gate.userData.scored = true;
-    if (distance < gate.userData.hitRadius) {
+    if (isGateCleared(shipPosition, gate)) {
       applyGateClear(state);
       pulseObject(gate, palette.lime);
       createShockwaveAt(gate.position, state.streak >= 4 ? palette.amber : palette.lime, gate.userData.radius);
@@ -1314,6 +1373,16 @@ function animate() {
   const delta = Math.min(clock.getDelta(), 0.05);
   update(delta);
   composer.render();
+
+  // Measured against the wall clock, not `delta`, which is clamped — the whole
+  // point is to notice the frames the clamp hides.
+  const now = performance.now();
+  if (settings.adaptiveQuality !== false && lastFrameAt) {
+    const outcome = qualityGovernor.record(now - lastFrameAt, now);
+    if (outcome.changed) applyQualityTier(outcome.tier);
+  }
+  lastFrameAt = now;
+
   requestAnimationFrame(animate);
 }
 
@@ -1322,7 +1391,7 @@ function resize() {
   const height = window.innerHeight;
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, qualitySettings.maxPixelRatio));
   renderer.setSize(width, height);
   composer.setSize(width, height);
   bloomPass.setSize(width, height);
@@ -1407,6 +1476,15 @@ window.addEventListener('keydown', (event) =>
   }),
 );
 window.addEventListener('keyup', (event) => handleKeyEvent(keys, event, false));
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden || state.mode !== MODES.PLAYING) return;
+  // A background tab stops painting but the run kept going, so players came back
+  // to a wrecked ship. Pause directly rather than calling pauseGame(), which
+  // drops practice runs to the title — that is what Esc is for.
+  state.mode = MODES.PAUSED;
+  setOverlay(pausePanel, true);
+});
+
 window.addEventListener('resize', resize);
 window.addEventListener('pointermove', (event) => {
   if (state.mode !== MODES.PLAYING || event.pointerType !== 'mouse') return;
@@ -1503,6 +1581,9 @@ fpsToggle?.addEventListener('change', () => {
   persistSettings();
   updateFpsMeterVisibility();
 });
+adaptiveQualityToggle?.addEventListener('change', () => {
+  setAdaptiveQuality(adaptiveQualityToggle.checked);
+});
 difficultySelect?.addEventListener('change', () => {
   setDifficulty(difficultySelect.value);
   audio.play('tap');
@@ -1532,3 +1613,12 @@ if (!hasSeenTutorial()) {
   openTutorial();
 }
 animate();
+
+// Service worker registration lives here rather than in an inline <script> so
+// the page can keep a strict `script-src 'self'` policy with no 'unsafe-inline'.
+// Modules run before the load event, so this still registers after first paint.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}

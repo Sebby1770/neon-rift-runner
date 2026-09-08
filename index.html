@@ -4,6 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#050609" />
+    <!--
+      The game loads nothing off-origin, so it can afford a strict policy. This
+      is defence in depth for the leaderboard: localStorage is shared by every
+      project on the same GitHub Pages origin, so a hostile writer there decides
+      what this page renders. Entries are sanitised at the boundary and the
+      leaderboard is built from DOM nodes; this is the third layer.
+      'unsafe-inline' is needed for style-src only, because the bundler injects
+      a <style> tag; script-src stays strict.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'"
+    />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -245,6 +258,10 @@
               <input id="fpsToggle" type="checkbox" />
             </label>
             <label class="setting-row">
+              <span>Adaptive quality</span>
+              <input id="adaptiveQualityToggle" type="checkbox" checked />
+            </label>
+            <label class="setting-row">
               <span>Difficulty</span>
               <select id="difficultySelect" class="setting-select" aria-label="Difficulty preset">
                 <option value="easy">Easy</option>
@@ -312,12 +329,5 @@
     </main>
 
     <script type="module" src="/src/main.js"></script>
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(() => {});
-        });
-      }
-    </script>
   </body>
 </html>
