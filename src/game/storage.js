@@ -88,20 +88,58 @@ function scoresKey(mode) {
  * Load top scores for a mode. Daily board is scoped to today's date key.
  * Entries: { score, gates, maxStreak, runTime, at, dailyKey?, difficulty? }
  */
+const DIFFICULTIES = ['easy', 'normal', 'hard'];
+
+function toCount(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+/**
+ * Forces a stored leaderboard entry into a known shape.
+ *
+ * Entries come back from localStorage, which is scoped to the ORIGIN — every
+ * project published under the same GitHub Pages account shares this store, so
+ * anything able to write there can decide what this game renders. The read path
+ * used to check only `typeof score === 'number'`, and `gates` was interpolated
+ * straight into an innerHTML template: a stored `<img src=x onerror=…>` was
+ * rendered verbatim. Numbers are coerced, strings are constrained to known
+ * values, and anything unrecognised is dropped.
+ */
+export function sanitizeScoreEntry(entry) {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+
+  const score = Number(entry.score);
+  if (!Number.isFinite(score)) return null;
+
+  const runTime = Number(entry.runTime);
+  const record = {
+    score: Math.round(score),
+    gates: toCount(entry.gates),
+    maxStreak: toCount(entry.maxStreak),
+    runTime: Number.isFinite(runTime) && runTime > 0 ? runTime : 0,
+    at: typeof entry.at === 'string' ? entry.at.slice(0, 40) : '',
+  };
+
+  if (DIFFICULTIES.includes(entry.difficulty)) record.difficulty = entry.difficulty;
+  if (typeof entry.dailyKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(entry.dailyKey)) {
+    record.dailyKey = entry.dailyKey;
+  }
+  return record;
+}
+
 export function loadLeaderboard(mode = 'normal', { todayKey, storage = defaultStorage() } = {}) {
   if (!storage) return [];
   try {
     const raw = storage.getItem(scoresKey(mode));
     if (!raw) return [];
-    let list = JSON.parse(raw);
+    const list = JSON.parse(raw);
     if (!Array.isArray(list)) return [];
+    let entries = list.map(sanitizeScoreEntry).filter(Boolean);
     if (mode === 'daily' && todayKey) {
-      list = list.filter((e) => e.dailyKey === todayKey);
+      entries = entries.filter((e) => e.dailyKey === todayKey);
     }
-    return list
-      .filter((e) => e && typeof e.score === 'number')
-      .sort((a, b) => b.score - a.score)
-      .slice(0, MAX_LEADERBOARD);
+    return entries.sort((a, b) => b.score - a.score).slice(0, MAX_LEADERBOARD);
   } catch {
     return [];
   }
@@ -117,13 +155,11 @@ export function getBestScore(mode = 'normal', opts = {}) {
  * Returns { board, rank (1-based or 0 if not placed), isNewBest }
  */
 export function submitScore(mode, entry, { storage = defaultStorage(), todayKey } = {}) {
-  const record = {
-    score: Math.round(entry.score || 0),
-    gates: entry.gates || 0,
-    maxStreak: entry.maxStreak || 0,
-    runTime: entry.runTime || 0,
+  const record = sanitizeScoreEntry({
+    ...entry,
+    score: entry.score || 0,
     at: entry.at || new Date().toISOString(),
-  };
+  }) ?? { score: 0, gates: 0, maxStreak: 0, runTime: 0, at: '' };
   if (entry.difficulty) record.difficulty = entry.difficulty;
   if (mode === 'daily') {
     record.dailyKey = entry.dailyKey || todayKey || getTodayKey();

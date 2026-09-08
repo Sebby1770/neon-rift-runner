@@ -555,12 +555,25 @@ function renderLeaderboard(mode = 'normal') {
     leaderboardList.innerHTML = `<li class="empty">No scores yet${diffHint} — launch a run.</li>`;
     return;
   }
-  leaderboardList.innerHTML = board
-    .map(
-      (entry, i) =>
-        `<li><span class="rank">#${i + 1}</span><span class="pts">${formatScore(entry.score)}</span><span class="meta">${entry.gates}g · ${formatTime(entry.runTime)}</span></li>`,
-    )
-    .join('');
+  // Built as nodes rather than an innerHTML template: these values come from
+  // localStorage, which is shared by every project on the same origin, so no
+  // field here should ever be able to become markup.
+  leaderboardList.replaceChildren(
+    ...board.map((entry, i) => {
+      const row = document.createElement('li');
+      const rank = document.createElement('span');
+      rank.className = 'rank';
+      rank.textContent = `#${i + 1}`;
+      const pts = document.createElement('span');
+      pts.className = 'pts';
+      pts.textContent = formatScore(entry.score);
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = `${entry.gates}g · ${formatTime(entry.runTime)}`;
+      row.append(rank, pts, meta);
+      return row;
+    }),
+  );
 }
 
 function loadGhostForRun({ zen, daily, practice, difficulty }) {
@@ -1600,3 +1613,12 @@ if (!hasSeenTutorial()) {
   openTutorial();
 }
 animate();
+
+// Service worker registration lives here rather than in an inline <script> so
+// the page can keep a strict `script-src 'self'` policy with no 'unsafe-inline'.
+// Modules run before the load event, so this still registers after first paint.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
